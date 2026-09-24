@@ -1,0 +1,114 @@
+{
+  "routine_name": "Fase 1: 10K & Calistenia (Adaptacion)",
+  "description": "Fase 1 de acondicionamiento: prevencion de codo, estabilidad lumbar y carrera continua suave.",
+  "days": [
+    {
+      "day_name": "Lunes: Torso y Core",
+      "day_of_week": 1,
+      "exercises": [
+        {
+          "name": "Inverted row",
+          "notes": "Dominadas australianas. Tronco neutro, codos pegados.",
+          "sets": 4,
+          "reps": 8,
+          "rest_seconds": 90
+        },
+        {
+          "name": "Push-up",
+          "notes": "En barra elevada si hay molestia. Codos a 45 grados, sin bloquear.",
+          "sets": 3,
+          "reps": 10,
+          "rest_seconds": 90
+        },
+        {
+          "name": "Bench dip",
+          "notes": "Pies apoyados, bajar lento, sin hiperextension de codo.",
+          "sets": 3,
+          "reps": 8,
+          "rest_seconds": 90
+        },
+        {
+          "name": "Plank",
+          "notes": "Retroversion pelvica activa apretando gluteos.",
+          "sets": 3,
+          "reps": 30,
+          "rest_seconds": 60
+        },
+        {
+          "name": "Dead bug",
+          "notes": "Espalda baja completamente pegada al suelo.",
+          "sets": 3,
+          "reps": 10,
+          "rest_seconds": 60
+        }
+      ]
+    },
+    {
+      "day_name": "Martes: Carrera 1 (Base Aerobica)",
+      "day_of_week": 2,
+      "exercises": [
+        {
+          "name": "Running",
+          "notes": "25-30 min a ritmo conversacional (6:30-6:50 min/km).",
+          "sets": 1,
+          "reps": 30,
+          "rest_seconds": 0
+        }
+      ]
+    },
+    {
+      "day_name": "Jueves: Pierna y Estabilidad",
+      "day_of_week": 4,
+      "exercises": [
+        {
+          "name": "Bulgarian split squat",
+          "notes": "Unilateral para compensar dismetria pelvica.",
+          "sets": 3,
+          "reps": 10,
+          "rest_seconds": 90
+        },
+        {
+          "name": "Single leg glute bridge",
+          "notes": "Activacion de gluteo medio y soporte lumbar.",
+          "sets": 3,
+          "reps": 10,
+          "rest_seconds": 60
+        },
+        {
+          "name": "Chin-up",
+          "notes": "Con banda de asistencia o agarre neutro para cuidar el codo.",
+          "sets": 3,
+          "reps": 5,
+          "rest_seconds": 120
+        },
+        {
+          "name": "Calf raises",
+          "notes": "En escalon, bajada en 3 segundos.",
+          "sets": 3,
+          "reps": 15,
+          "rest_seconds": 60
+        },
+        {
+          "name": "Side plank",
+          "notes": "Estabilidad del cuadrado lumbar contra la escoliosis.",
+          "sets": 3,
+          "reps": 30,
+          "rest_seconds": 60
+        }
+      ]
+    },
+    {
+      "day_name": "Sabado: Carrera 2 (Tirada Larga)",
+      "day_of_week": 6,
+      "exercises": [
+        {
+          "name": "Running",
+          "notes": "35-40 min continuos o CACO si la espalda avisa.",
+          "sets": 1,
+          "reps": 40,
+          "rest_seconds": 0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+sdk.dir=/path/to/Android/Sdk
+
+# Configuración privada del servidor wger (Tailscale o LAN)
+wger.server.url="https://wger.example.com"
+wger.api.token="YOUR_WGER_API_TOKEN_HERE"
