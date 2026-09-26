@@ -86,7 +86,8 @@ Los tests de `wear/src/sharedTest/` corren en JVM y en el reloj; usan un nombre 
 ## Estado real (no te fíes de la spec en esto)
 
 - **Pulso:** `SensorManager` + `Sensor.TYPE_HEART_RATE`. La dependencia `health-services-client` está declarada pero **no se usa** (la spec pedía `ExerciseClient`).
-- **Sin reintentos:** si el envío de una sesión falla, queda `PENDING` para siempre. `WorkoutSessionDao.getPendingSessions()` existe pero nadie lo llama. El estado `SYNCING` nunca se asigna.
-- **ACK optimista:** el móvil manda el ACK aunque falle el `POST` de alguna serie; esos fallos solo quedan en logcat.
-- **Duplicados:** si el móvil reprocesa un `completed_session`, crea otra sesión en wger (no hay idempotencia).
+- **Sincronización incompleta**, en issues de GitHub (van en este orden y dependen entre sí; el detalle está en cada issue, `gh issue view N`):
+  1. #1 **Duplicados:** reprocesar un `completed_session` crea otra sesión en wger.
+  2. #2 **ACK optimista:** se manda aunque falle el `POST` de alguna serie.
+  3. #3 **Sin reintentos:** una sesión `PENDING` no se reenvía nunca (`getPendingSessions()` no se usa; `SYNCING` nunca se asigna).
 - **`import_routine.py`:** los ejercicios que no están en su `exercise_map` se importan como el ID `1551` (push-up) sin avisar.

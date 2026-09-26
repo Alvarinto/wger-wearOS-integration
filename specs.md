@@ -40,7 +40,7 @@ Registrar entrenamientos de gimnasio desde el **Pixel Watch 3** sin depender del
 | W5 | Medir el pulso de forma continua con la pantalla apagada: foreground service `health` + `OngoingActivity` | ⚠️ Usa `SensorManager` (`TYPE_HEART_RATE`), no `ExerciseClient` de Health Services |
 | W6 | Resumen al terminar: duración, series y pulso medio | ✅ |
 | W7 | Enviar la sesión terminada al móvil y marcarla `SYNCED` al recibir el ACK | ✅ |
-| W8 | Reintentar las sesiones que se quedaron en `PENDING` | ❌ |
+| W8 | Reintentar las sesiones que se quedaron en `PENDING` | ❌ #3 |
 
 ### Móvil (`:mobile`)
 
@@ -49,8 +49,8 @@ Registrar entrenamientos de gimnasio desde el **Pixel Watch 3** sin depender del
 | M1 | Probar la conexión con el servidor wger | ✅ |
 | M2 | Obtener la rutina activa y su secuencia y enviarla al reloj | ⚠️ Envía el **primer día con ejercicios**, no el día de hoy |
 | M3 | Al recibir una sesión, crearla en wger y registrar cada serie | ✅ |
-| M4 | Mandar el ACK al reloj solo si la subida se ha completado | ⚠️ Lo manda aunque falle alguna serie |
-| M5 | No duplicar la sesión en wger si llega dos veces | ❌ |
+| M4 | Mandar el ACK al reloj solo si la subida se ha completado | ⚠️ Lo manda aunque falle alguna serie (#2) |
+| M5 | No duplicar la sesión en wger si llega dos veces | ❌ #1 |
 
 ### Herramientas
 
@@ -90,11 +90,9 @@ La BD está en la versión 2 (v1→v2: nueva clave de las series planificadas y 
 
 ## 6. Deuda técnica conocida
 
-1. Reintentar las sesiones `PENDING` (al abrir la app o al recuperar la conexión con el móvil) usando `getPendingSessions()`.
-2. Mandar el ACK solo si todas las series se han subido; si no, dejar la sesión en `PENDING` para reintentarla.
-3. Idempotencia en el móvil: recordar `localSessionId → remoteSessionId` para no crear la sesión dos veces en wger.
-4. Elegir en M2 el día que toca hoy, no el primero con ejercicios.
-5. Decidir sobre W5: migrar a `ExerciseClient` o quitar la dependencia `health-services-client`, que no se usa.
-6. `import_routine.py`: buscar los ejercicios en la API de wger y fallar si no existen, en lugar de usar push-up por defecto.
-7. Tests: hay base en `:wear` (`sharedTest`: BD, migraciones y `RoutineDao`) y en `:mobile` (`WgerApiClientTest` con `MockEngine`). Falta cubrir el mapeo del `DataMap` entre el reloj y el móvil.
-8. No hay firma de release: ahora mismo solo funciona con la keystore de debug compartida.
+1. Sincronización fiable, en issues de GitHub y por este orden: #1 idempotencia, #2 ACK solo si todo se sube y #3 reintento de `PENDING`.
+2. Elegir en M2 el día que toca hoy, no el primero con ejercicios.
+3. Decidir sobre W5: migrar a `ExerciseClient` o quitar la dependencia `health-services-client`, que no se usa.
+4. `import_routine.py`: buscar los ejercicios en la API de wger y fallar si no existen, en lugar de usar push-up por defecto.
+5. Tests: hay base en `:wear` (`sharedTest`: BD, migraciones y `RoutineDao`) y en `:mobile` (`WgerApiClientTest` con `MockEngine`). Falta cubrir el mapeo del `DataMap` entre el reloj y el móvil.
+6. No hay firma de release: ahora mismo solo funciona con la keystore de debug compartida.
