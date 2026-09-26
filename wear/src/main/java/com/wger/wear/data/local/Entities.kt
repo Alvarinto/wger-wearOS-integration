@@ -1,5 +1,6 @@
 package com.wger.wear.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -13,13 +14,16 @@ data class RoutineCacheEntity(
     val isCurrentActive: Boolean
 )
 
+// Una fila por serie planificada. wger repite slotEntryId en todas las series de un ejercicio,
+// así que la clave es la posición en la rutina.
 @Entity(
     tableName = "routine_exercise_slot",
-    indices = [Index(value = ["routineId", "executionOrder"])]
+    primaryKeys = ["routineId", "executionOrder"]
 )
 data class RoutineExerciseSlotEntity(
-    @PrimaryKey val slotEntryId: Long,
+    val slotEntryId: Long,
     val routineId: Long,
+    @ColumnInfo(defaultValue = "0") val exerciseId: Long = 0,
     val exerciseName: String,
     val setNumber: Int,
     val totalSetsForExercise: Int,
@@ -55,6 +59,7 @@ data class LoggedSetEntryEntity(
     @PrimaryKey(autoGenerate = true) val setId: Long = 0,
     val sessionId: Long,
     val slotEntryId: Long,
+    @ColumnInfo(defaultValue = "0") val exerciseId: Long = 0,
     val exerciseName: String,
     val completedReps: Int,
     val weightUsedKg: Float,

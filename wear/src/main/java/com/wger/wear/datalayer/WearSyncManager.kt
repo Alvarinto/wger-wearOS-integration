@@ -27,6 +27,7 @@ class WearSyncManager(context: Context) {
                 sets.forEach { set ->
                     val setObj = JSONObject().apply {
                         put("slotEntryId", set.slotEntryId)
+                        put("exerciseId", set.exerciseId)
                         put("reps", set.completedReps)
                         put("weightKg", set.weightUsedKg.toDouble())
                         put("timestamp", set.completedTimestampMs)

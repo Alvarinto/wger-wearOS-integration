@@ -15,7 +15,7 @@ wger (REST v2, Token) ⇄ :mobile (Ktor)  ⇄  Data Layer (DataClient)  ⇄  :we
 | Módulo | Ruta | Contenido |
 |---|---|---|
 | `:wear` | `wear/src/main/java/com/wger/wear/` | |
-| | `data/local/` | Room: `Entities.kt`, `Daos.kt`, `AppDatabase.kt` (versión 1; esquemas en `wear/schemas/`) |
+| | `data/local/` | Room: `Entities.kt`, `Daos.kt`, `AppDatabase.kt` (versión 2; esquemas en `wear/schemas/`) |
 | | `datalayer/` | `WearSyncManager` (envía sesiones, pide rutina) · `WearDataLayerListenerService` (recibe rutina y ACK) |
 | | `service/` | `WorkoutTrackingService`: foreground `health` + `OngoingActivity`, pulso vía `SensorManager` |
 | | `presentation/` | `MainActivity` (navegación) + `RoutineScreen`, `WorkoutScreen`, `RestTimerScreen`, `SummaryScreen` |
@@ -36,6 +36,14 @@ Si cambias un lado, cambia el otro en el mismo commit. Las claves van dentro de 
 | `/wger/completed_session/{localId}` | reloj → móvil | `DataClient` | `localSessionId`, `routineId`, `startTimestamp`, `endTimestamp`, `avgHeartRate`, `setsJson` |
 | `/wger/session_synced/{localId}` | móvil → reloj | `DataClient` | `sessionId`, `syncedAt` |
 | `/wger/request_routine` | reloj → móvil | `MessageClient` | (sin payload) |
+
+Cada elemento de `slotsJson` es **una serie**: `slotEntryId`, `exerciseId`, `exerciseName`, `setNumber`, `totalSetsForExercise`, `executionOrder`, `targetReps`, `defaultWeightKg` y `restDurationSeconds`. Cada elemento de `setsJson` lleva `slotEntryId`, `exerciseId`, `reps`, `weightKg` y `timestamp`.
+
+**Contrato de la API de wger (2.x):**
+- `slotEntryId` se **repite** en todas las series de un ejercicio: nunca lo uses como clave (en el reloj la clave es `(routineId, executionOrder)`).
+- Los IDs de sesión y de log son **UUID** (`String`).
+- `POST /workoutlog/` exige `exercise` y usa `repetitions`.
+- `POST /workoutsession/` usa `datetime_start` y `datetime_end`; ya no existe `date`.
 
 ## Reglas que no se pueden romper
 
@@ -64,13 +72,16 @@ ANDROID_SERIAL=<IP>:<PUERTO>  ./gradlew -q :wear:installDebug     # reloj por AD
 python3 scripts/import_routine.py rutina.json                  # ejecutar desde la raíz del repo
 
 ./gradlew -q :wear:testDebugUnitTest       # tests JVM (Robolectric)
+./gradlew -q :mobile:testDebugUnitTest     # tests de la API con MockEngine de Ktor (sin red)
 # Tests en el reloj. SIN el flag, AGP desinstala la app al acabar y se borra la BD real del reloj
 ANDROID_SERIAL=<IP>:<PUERTO> ./gradlew -q :wear:connectedDebugAndroidTest \
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
 adb -s <IP>:<PUERTO> uninstall com.wger.companion.test          # limpiar el APK de test
 ```
 
-Los tests de `wear/src/sharedTest/` corren en JVM y en el reloj; usan un nombre de BD propio (`AppDatabase.build(context, "…")`), nunca `wger_wear.db`. Con `-q`, si no sale nada es que todo ha ido bien; si falla, el motivo está en `wear/build/test-results/**/*.xml`. Tras un cambio, deben pasar `assembleDebug` y `:wear:testDebugUnitTest`.
+**ADB WiFi con el reloj:** usa el `adb` del SDK (`~/Android/Sdk/platform-tools`), no el de `/usr/bin` (no tiene mDNS). Con **Tailscale activo en el PC**, `adb connect` o `adb pair` al reloj fallan (`No route to host` / `protocol fault`) aunque el reloj se anuncie por mDNS: desactívalo mientras depuras. El puerto cambia cada vez; `adb mdns services` muestra el actual.
+
+Los tests de `wear/src/sharedTest/` corren en JVM y en el reloj; usan un nombre de BD propio (`AppDatabase.build(context, "…")`), nunca `wger_wear.db`. Cada versión de la BD lleva su test en `MigrationTest`. En `:mobile`, `WgerApiClient` recibe el `engine` de Ktor por parámetro, así que los tests le pasan un `MockEngine` con respuestas copiadas del servidor real. Con `-q`, si no sale nada es que todo ha ido bien; si falla, el motivo está en `*/build/test-results/**/*.xml`. Tras un cambio, deben pasar `assembleDebug`, `:wear:testDebugUnitTest` y `:mobile:testDebugUnitTest`.
 
 ## Estado real (no te fíes de la spec en esto)
 

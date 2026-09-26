@@ -60,6 +60,11 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        // android.util.Log y demás devuelven valores por defecto en tests JVM
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -84,4 +89,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+
+    // Tests
+    testImplementation(libs.junit)
+    testImplementation(libs.ktor.client.mock)
 }

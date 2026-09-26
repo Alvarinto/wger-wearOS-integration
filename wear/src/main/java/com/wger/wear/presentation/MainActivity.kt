@@ -210,6 +210,7 @@ fun WearAppRoot(
                             val loggedSet = LoggedSetEntryEntity(
                                 sessionId = sessionId,
                                 slotEntryId = currentSlot.slotEntryId,
+                                exerciseId = currentSlot.exerciseId,
                                 exerciseName = currentSlot.exerciseName,
                                 completedReps = reps,
                                 weightUsedKg = weightKg,

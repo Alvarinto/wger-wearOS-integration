@@ -19,6 +19,7 @@ data class WgerRoutineListResponse(
 @Serializable
 data class WgerExerciseSlot(
     val slotEntryId: Long,
+    val exerciseId: Long = 0,
     val exerciseName: String,
     val setNumber: Int,
     val totalSetsForExercise: Int,
@@ -30,15 +31,17 @@ data class WgerExerciseSlot(
 
 @Serializable
 data class WorkoutSessionRequest(
-    val date: String,
+    val datetime_start: String,
+    val datetime_end: String,
     val notes: String = "",
     val impression: Int = 2 // 1: Very good, 2: Good, 3: Normal, etc.
 )
 
 @Serializable
 data class WorkoutLogRequest(
-    val session: Long,
+    val session: String, // wger 2.x usa UUID
+    val exercise: Long,
     val slot_entry: Long? = null,
-    val reps: Int,
+    val repetitions: Int,
     val weight: Double
 )

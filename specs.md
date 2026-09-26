@@ -64,7 +64,7 @@ Registrar entrenamientos de gimnasio desde el **Pixel Watch 3** sin depender del
 
 1. El usuario pulsa **Obtener Rutinas de wger** y **Enviar Rutina al Reloj** en el móvil, o **Pedir rutina al móvil** en el reloj (`MessageClient` → `/wger/request_routine`).
 2. El móvil llama a `GET /api/v2/routine/` y elige la rutina con `is_active`, o la primera si ninguna lo tiene.
-3. El móvil llama a `GET /api/v2/routine/{id}/date-sequence-gym/` y lo aplana a una lista de series (una entrada por serie, con `executionOrder`).
+3. El móvil llama a `GET /api/v2/routine/{id}/date-sequence-gym/` y lo aplana a una lista de series (una entrada por serie, con `executionOrder` y `exerciseId`). wger repite el `slot_entry_id` en todas las series de un ejercicio.
    - El nombre del ejercicio sale del `comment` del slot (el texto antes de `:`).
    - Si faltan campos, se usan valores por defecto: 10 reps, 60 s de descanso, 0 kg y `slotEntryId` sintético.
 4. El móvil envía `/wger/routine_update` y el reloj sustituye su rutina en Room en una transacción.
@@ -74,7 +74,7 @@ Registrar entrenamientos de gimnasio desde el **Pixel Watch 3** sin depender del
 1. **Iniciar** crea una `LoggedWorkoutSession` en estado `PENDING`, arranca el foreground service y empieza a leer el pulso.
 2. Cada **Registrar serie** inserta un `LoggedSetEntry` y lleva al descanso.
 3. **Finalizar** calcula el pulso medio, guarda la sesión y envía `/wger/completed_session/{localId}`.
-4. El móvil hace `POST /api/v2/workoutsession/` con `date`, `notes` (duración y pulso medio) e `impression = 2`, y después un `POST /api/v2/workoutlog/` por serie con `session`, `slot_entry`, `reps` y `weight`.
+4. El móvil hace `POST /api/v2/workoutsession/` con `datetime_start`, `datetime_end`, `notes` (duración y pulso medio) e `impression = 2`. wger devuelve el ID de la sesión como UUID. Después hace un `POST /api/v2/workoutlog/` por serie con `session`, `exercise` (obligatorio), `slot_entry`, `repetitions` y `weight`.
 5. El móvil envía `/wger/session_synced/{localId}` y el reloj marca la sesión como `SYNCED`.
 
 ## 5. Modelo de datos local (Room, `:wear`)
@@ -82,11 +82,11 @@ Registrar entrenamientos de gimnasio desde el **Pixel Watch 3** sin depender del
 Definición en `wear/src/main/java/com/wger/wear/data/local/Entities.kt`.
 
 - `routine_cache`: la rutina activa (`isCurrentActive`).
-- `routine_exercise_slot`: una fila por serie planificada, ordenada por `executionOrder`.
+- `routine_exercise_slot`: una fila por serie planificada. Clave `(routineId, executionOrder)`; incluye `exerciseId`.
 - `logged_workout_session`: la sesión, con `syncStatus` (`PENDING` / `SYNCING` / `SYNCED`; `SYNCING` no se usa todavía).
 - `logged_set_entry`: las series hechas, con FK a la sesión y borrado en cascada.
 
-La BD está en la versión 1. Su esquema se exporta a `wear/schemas/` y se versiona en git. **Un cambio de esquema nunca borra datos:** sin `Migration`, la app falla al abrir en lugar de vaciar la BD (lo comprueba `AppDatabaseSchemaChangeTest`, en JVM y en el reloj). Los cambios de esquema se hacen con `@AutoMigration` (procedimiento en `AGENTS.md`, regla 5).
+La BD está en la versión 2 (v1→v2: nueva clave de las series planificadas y columna `exerciseId`; lo cubre `MigrationTest`). Su esquema se exporta a `wear/schemas/` y se versiona en git. **Un cambio de esquema nunca borra datos:** sin `Migration`, la app falla al abrir en lugar de vaciar la BD (lo comprueba `AppDatabaseSchemaChangeTest`, en JVM y en el reloj). Los cambios de esquema se hacen con `@AutoMigration` (procedimiento en `AGENTS.md`, regla 5).
 
 ## 6. Deuda técnica conocida
 
@@ -96,5 +96,5 @@ La BD está en la versión 1. Su esquema se exporta a `wear/schemas/` y se versi
 4. Elegir en M2 el día que toca hoy, no el primero con ejercicios.
 5. Decidir sobre W5: migrar a `ExerciseClient` o quitar la dependencia `health-services-client`, que no se usa.
 6. `import_routine.py`: buscar los ejercicios en la API de wger y fallar si no existen, en lugar de usar push-up por defecto.
-7. Tests: ya existe la base (`wear/src/sharedTest`, Robolectric y en el reloj) con el test de la BD. Faltan tests del parseo de `date-sequence-gym` (`:mobile` aún no tiene tests), del mapeo del `DataMap` y de los DAOs.
+7. Tests: hay base en `:wear` (`sharedTest`: BD, migraciones y `RoutineDao`) y en `:mobile` (`WgerApiClientTest` con `MockEngine`). Falta cubrir el mapeo del `DataMap` entre el reloj y el móvil.
 8. No hay firma de release: ahora mismo solo funciona con la keystore de debug compartida.

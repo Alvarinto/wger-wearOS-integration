@@ -25,6 +25,7 @@ class PhoneSyncManager(context: Context) {
                 slots.forEach { slot ->
                     val obj = JSONObject().apply {
                         put("slotEntryId", slot.slotEntryId)
+                        put("exerciseId", slot.exerciseId)
                         put("exerciseName", slot.exerciseName)
                         put("setNumber", slot.setNumber)
                         put("totalSetsForExercise", slot.totalSetsForExercise)

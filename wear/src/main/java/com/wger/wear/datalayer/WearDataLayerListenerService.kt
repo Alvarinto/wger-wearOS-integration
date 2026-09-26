@@ -53,6 +53,7 @@ class WearDataLayerListenerService : WearableListenerService() {
                                         RoutineExerciseSlotEntity(
                                             slotEntryId = obj.getLong("slotEntryId"),
                                             routineId = routineId,
+                                            exerciseId = obj.optLong("exerciseId", 0),
                                             exerciseName = obj.getString("exerciseName"),
                                             setNumber = obj.getInt("setNumber"),
                                             totalSetsForExercise = obj.getInt("totalSetsForExercise"),

@@ -13,9 +13,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.json.JSONArray
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class MobileDataLayerListenerService : WearableListenerService() {
 
@@ -70,15 +67,13 @@ class MobileDataLayerListenerService : WearableListenerService() {
         try {
             Log.d(TAG, "Procesando sesión completada $localSessionId recibida del reloj...")
 
-            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val dateStr = dateFormat.format(Date(startTimestamp))
-
             val durationMinutes = ((endTimestamp - startTimestamp) / 60000).coerceAtLeast(1)
             val notes = "Sesión completada desde Pixel Watch 3. Duración: $durationMinutes min. Pulso medio: $avgHeartRate bpm."
 
             // 1. Crear sesión en wger
             val sessionResult = apiClient.createWorkoutSession(
-                dateStr = dateStr,
+                startMs = startTimestamp,
+                endMs = endTimestamp,
                 notes = notes,
                 impression = 2
             )
@@ -91,11 +86,13 @@ class MobileDataLayerListenerService : WearableListenerService() {
             for (i in 0 until setsArray.length()) {
                 val setObj = setsArray.getJSONObject(i)
                 val slotEntryId = setObj.optLong("slotEntryId", 0L)
+                val exerciseId = setObj.optLong("exerciseId", 0L)
                 val reps = setObj.getInt("reps")
                 val weightKg = setObj.getDouble("weightKg")
 
                 val logResult = apiClient.logWorkoutSet(
                     sessionId = remoteSessionId,
+                    exerciseId = exerciseId,
                     slotEntryId = if (slotEntryId > 0) slotEntryId else null,
                     reps = reps,
                     weight = weightKg

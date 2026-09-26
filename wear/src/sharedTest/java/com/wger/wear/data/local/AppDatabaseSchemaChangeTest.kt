@@ -15,7 +15,7 @@ import org.junit.runner.RunWith
 /**
  * Un desajuste de versión de esquema sin Migration NO debe borrar las sesiones pendientes del reloj.
  *
- * Se simula poniendo `user_version = 2` en el fichero mientras el código está en v1: Room recorre el
+ * Se simula subiendo `user_version` del fichero por encima de la versión del código: Room recorre el
  * mismo camino que en una subida sin migración (isMigrationRequired → destructivo si hay fallback).
  */
 @RunWith(AndroidJUnit4::class)
@@ -41,7 +41,7 @@ class AppDatabaseSchemaChangeTest {
         db.close()
 
         val path = context.getDatabasePath(dbName).path
-        SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READWRITE).use { it.version = 2 }
+        SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READWRITE).use { it.version = it.version + 1 }
 
         val reopened = AppDatabase.build(context, dbName)
         val openError = runCatching { reopened.openHelper.writableDatabase }.exceptionOrNull()

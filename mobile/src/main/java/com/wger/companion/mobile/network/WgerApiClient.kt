@@ -7,6 +7,7 @@ import com.wger.companion.mobile.data.model.WgerRoutine
 import com.wger.companion.mobile.data.model.WorkoutLogRequest
 import com.wger.companion.mobile.data.model.WorkoutSessionRequest
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
@@ -28,12 +29,14 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import java.time.Instant
 
 class WgerApiClient(
     private val baseUrl: String = BuildConfig.WGER_SERVER_URL.trimEnd('/'),
-    private val apiToken: String = BuildConfig.WGER_API_TOKEN
+    private val apiToken: String = BuildConfig.WGER_API_TOKEN,
+    engine: HttpClientEngine = OkHttp.create()
 ) {
-    private val client = HttpClient(OkHttp) {
+    private val client = HttpClient(engine) {
         install(ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true
@@ -142,6 +145,7 @@ class WgerApiClient(
                             val setObj = setsArray[setIdx].jsonObject
                             val slotEntryId = setObj["slot_entry_id"]?.jsonPrimitive?.longOrNull
                                 ?: (executionIndex + 1L)
+                            val exerciseId = setObj["exercise"]?.jsonPrimitive?.longOrNull ?: 0L
                             val reps = setObj["repetitions"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()?.toInt()
                                 ?: 10
                             val rest = setObj["rest"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()?.toInt()
@@ -152,6 +156,7 @@ class WgerApiClient(
                             slotsList.add(
                                 WgerExerciseSlot(
                                     slotEntryId = slotEntryId,
+                                    exerciseId = exerciseId,
                                     exerciseName = exerciseName,
                                     setNumber = setIdx + 1,
                                     totalSetsForExercise = totalSets,
@@ -219,14 +224,15 @@ class WgerApiClient(
         }
     }
 
-    suspend fun createWorkoutSession(dateStr: String, notes: String, impression: Int): Result<Long> {
+    suspend fun createWorkoutSession(startMs: Long, endMs: Long, notes: String, impression: Int): Result<String> {
         return try {
             val response = client.post("$baseUrl/api/v2/workoutsession/") {
                 header("Authorization", "Token $apiToken")
                 contentType(ContentType.Application.Json)
                 setBody(
                     WorkoutSessionRequest(
-                        date = dateStr,
+                        datetime_start = Instant.ofEpochMilli(startMs).toString(),
+                        datetime_end = Instant.ofEpochMilli(endMs).toString(),
                         notes = notes,
                         impression = impression
                     )
@@ -238,7 +244,7 @@ class WgerApiClient(
 
             val body = response.bodyAsText()
             val obj = jsonParser.parseToJsonElement(body).jsonObject
-            val id = obj["id"]?.jsonPrimitive?.longOrNull
+            val id = obj["id"]?.jsonPrimitive?.contentOrNull
                 ?: return Result.failure(Exception("No se encontró el ID en la respuesta de sesión: $body"))
 
             Result.success(id)
@@ -248,7 +254,7 @@ class WgerApiClient(
         }
     }
 
-    suspend fun logWorkoutSet(sessionId: Long, slotEntryId: Long?, reps: Int, weight: Double): Result<Long> {
+    suspend fun logWorkoutSet(sessionId: String, exerciseId: Long, slotEntryId: Long?, reps: Int, weight: Double): Result<String> {
         return try {
             val response = client.post("$baseUrl/api/v2/workoutlog/") {
                 header("Authorization", "Token $apiToken")
@@ -256,8 +262,9 @@ class WgerApiClient(
                 setBody(
                     WorkoutLogRequest(
                         session = sessionId,
+                        exercise = exerciseId,
                         slot_entry = slotEntryId,
-                        reps = reps,
+                        repetitions = reps,
                         weight = weight
                     )
                 )
@@ -268,8 +275,7 @@ class WgerApiClient(
 
             val body = response.bodyAsText()
             val obj = jsonParser.parseToJsonElement(body).jsonObject
-            val id = obj["id"]?.jsonPrimitive?.longOrNull ?: 0L
-            Result.success(id)
+            Result.success(obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty())
         } catch (e: Exception) {
             Log.e(TAG, "Error registrando serie en wger", e)
             Result.failure(e)

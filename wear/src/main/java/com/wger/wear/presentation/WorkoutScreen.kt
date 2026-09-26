@@ -42,7 +42,7 @@ fun WorkoutScreen(
     var reps by remember { mutableIntStateOf(currentSlot.targetReps) }
     var weightKg by remember { mutableFloatStateOf(currentSlot.defaultWeightKg) }
 
-    LaunchedEffect(currentSlot.slotEntryId) {
+    LaunchedEffect(currentSlot.executionOrder) {
         reps = currentSlot.targetReps
         weightKg = currentSlot.defaultWeightKg
     }
