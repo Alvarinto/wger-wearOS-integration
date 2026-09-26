@@ -15,7 +15,7 @@ wger (REST v2, Token) ⇄ :mobile (Ktor)  ⇄  Data Layer (DataClient)  ⇄  :we
 | Módulo | Ruta | Contenido |
 |---|---|---|
 | `:wear` | `wear/src/main/java/com/wger/wear/` | |
-| | `data/local/` | Room: `Entities.kt`, `Daos.kt`, `AppDatabase.kt` (versión 1) |
+| | `data/local/` | Room: `Entities.kt`, `Daos.kt`, `AppDatabase.kt` (versión 1; esquemas en `wear/schemas/`) |
 | | `datalayer/` | `WearSyncManager` (envía sesiones, pide rutina) · `WearDataLayerListenerService` (recibe rutina y ACK) |
 | | `service/` | `WorkoutTrackingService`: foreground `health` + `OngoingActivity`, pulso vía `SensorManager` |
 | | `presentation/` | `MainActivity` (navegación) + `RoutineScreen`, `WorkoutScreen`, `RestTimerScreen`, `SummaryScreen` |
@@ -43,7 +43,11 @@ Si cambias un lado, cambia el otro en el mismo commit. Las claves van dentro de 
 2. **Todo `PutDataMapRequest` lleva `.setUrgent()`.** Sin él, Wear OS puede retrasar la entrega hasta ~30 min.
 3. **Datos críticos solo por `DataClient`**, nunca `MessageClient` (no persiste ni reintenta). `MessageClient` solo para peticiones desechables como `request_routine`.
 4. **Secretos:** URL y token solo en `local.properties` (ignorado por git) → `BuildConfig.WGER_SERVER_URL` / `WGER_API_TOKEN`. Nunca los escribas en código, logs ni commits.
-5. **Room usa `fallbackToDestructiveMigration()`.** Cambiar una entidad sin subir versión rompe; subirla **borra la BD del reloj, sesiones `PENDING` incluidas**. Si tocas el esquema, escribe una `Migration`.
+5. **La BD del reloj nunca se borra sola** (sin `fallbackToDestructiveMigration`; lo vigila `AppDatabaseSchemaChangeTest`). Guarda sesiones que no existen en ningún otro sitio. Para cambiar una entidad:
+   1. Sube `version` en `AppDatabase`.
+   2. Añade `autoMigrations = [AutoMigration(from = N, to = N + 1)]`. Si renombras o borras columnas, usa una `AutoMigrationSpec` o una `Migration` manual.
+   3. Compila y commitea el nuevo `wear/schemas/.../N+1.json`. Los JSON de los esquemas no se editan a mano.
+   4. Si falta la migración, la app se cierra al abrirse en lugar de perder datos.
 6. **Wear Compose:** en `ScalingLazyColumn`, varios `Text` en un mismo `item {}` van dentro de `Column(horizontalAlignment = Alignment.CenterHorizontally)` (si no, se superponen). Padding lateral ≥ `12.dp` por la pantalla circular.
 
 ## Comandos
@@ -58,9 +62,15 @@ Usa siempre `-q`: la salida normal de Gradle desperdicia contexto. Nunca leas `b
 ANDROID_SERIAL=<SERIAL_MOVIL> ./gradlew -q :mobile:installDebug   # serial: `adb devices`
 ANDROID_SERIAL=<IP>:<PUERTO>  ./gradlew -q :wear:installDebug     # reloj por ADB WiFi
 python3 scripts/import_routine.py rutina.json                  # ejecutar desde la raíz del repo
+
+./gradlew -q :wear:testDebugUnitTest       # tests JVM (Robolectric)
+# Tests en el reloj. SIN el flag, AGP desinstala la app al acabar y se borra la BD real del reloj
+ANDROID_SERIAL=<IP>:<PUERTO> ./gradlew -q :wear:connectedDebugAndroidTest \
+  -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+adb -s <IP>:<PUERTO> uninstall com.wger.companion.test          # limpiar el APK de test
 ```
 
-No hay tests todavía. Tras un cambio, como mínimo `assembleDebug` debe pasar.
+Los tests de `wear/src/sharedTest/` corren en JVM y en el reloj; usan un nombre de BD propio (`AppDatabase.build(context, "…")`), nunca `wger_wear.db`. Con `-q`, si no sale nada es que todo ha ido bien; si falla, el motivo está en `wear/build/test-results/**/*.xml`. Tras un cambio, deben pasar `assembleDebug` y `:wear:testDebugUnitTest`.
 
 ## Estado real (no te fíes de la spec en esto)
 

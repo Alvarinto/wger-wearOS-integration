@@ -33,7 +33,7 @@ Registrar entrenamientos de gimnasio desde el **Pixel Watch 3** sin depender del
 
 | ID | Requisito | Estado |
 |---|---|---|
-| W1 | Guardar la rutina activa en Room y funcionar sin conexión durante toda la sesión | ✅ |
+| W1 | Guardar la rutina activa en Room y funcionar sin conexión durante toda la sesión. Los datos locales sobreviven a las actualizaciones de la app | ✅ |
 | W2 | Pedir la rutina al móvil desde el reloj | ✅ `/wger/request_routine` |
 | W3 | Recorrer las series en orden, con reps y peso objetivo, y ajustar reps/kg antes de registrar | ✅ |
 | W4 | Temporizador de descanso entre series con vibración al terminar (+30 s / saltar) | ✅ |
@@ -86,7 +86,7 @@ Definición en `wear/src/main/java/com/wger/wear/data/local/Entities.kt`.
 - `logged_workout_session`: la sesión, con `syncStatus` (`PENDING` / `SYNCING` / `SYNCED`; `SYNCING` no se usa todavía).
 - `logged_set_entry`: las series hechas, con FK a la sesión y borrado en cascada.
 
-La BD está en la versión 1 con `fallbackToDestructiveMigration()`: **cualquier cambio de esquema borra las sesiones que no se hayan sincronizado**, así que hace falta una `Migration` antes de tocar las entidades.
+La BD está en la versión 1. Su esquema se exporta a `wear/schemas/` y se versiona en git. **Un cambio de esquema nunca borra datos:** sin `Migration`, la app falla al abrir en lugar de vaciar la BD (lo comprueba `AppDatabaseSchemaChangeTest`, en JVM y en el reloj). Los cambios de esquema se hacen con `@AutoMigration` (procedimiento en `AGENTS.md`, regla 5).
 
 ## 6. Deuda técnica conocida
 
@@ -96,5 +96,5 @@ La BD está en la versión 1 con `fallbackToDestructiveMigration()`: **cualquier
 4. Elegir en M2 el día que toca hoy, no el primero con ejercicios.
 5. Decidir sobre W5: migrar a `ExerciseClient` o quitar la dependencia `health-services-client`, que no se usa.
 6. `import_routine.py`: buscar los ejercicios en la API de wger y fallar si no existen, en lugar de usar push-up por defecto.
-7. No hay tests: priorizar el parseo de `date-sequence-gym`, el mapeo del `DataMap` y los DAOs.
+7. Tests: ya existe la base (`wear/src/sharedTest`, Robolectric y en el reloj) con el test de la BD. Faltan tests del parseo de `date-sequence-gym` (`:mobile` aún no tiene tests), del mapeo del `DataMap` y de los DAOs.
 8. No hay firma de release: ahora mismo solo funciona con la keystore de debug compartida.
