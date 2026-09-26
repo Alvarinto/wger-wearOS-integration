@@ -1,324 +1,100 @@
-# ESPECIFICACIÓN TÉCNICA: CLIENTE WGER PARA PIXEL WATCH 3 (WEAR OS 5) Y RELAY MÓVIL
+# Especificación técnica — Cliente wger para Pixel Watch 3 y relay móvil
 
-## 1. RESUMEN DEL SISTEMA Y REQUISITOS
+Qué debe hacer el sistema y por qué. El **cómo** está en el código; el contrato del Data Layer y las reglas de implementación, en `AGENTS.md`. Este documento no copia código a propósito: las copias se desfasan.
 
-* **Dispositivo objetivo:** Google Pixel Watch 3 (Wear OS 5 / API 34 / Android 14).
-* **Entorno del desarrollador:** Linux (Arch/CachyOS) con CLI de Android y ADB inalámbrico.
-* **Topología de red:** Móvil con Tailscale activo actúa como relay HTTP hacia la API REST v2 de wger. El reloj opera **100% offline** durante el entrenamiento.
-* **Replicación:** Google Play Services Wearable Data Layer mediante `DataClient` persistente con `.setUrgent()`. No usar `MessageClient` para registros críticos.
-* **Biometría:** Lectura continua de frecuencia cardíaca mediante `ExerciseClient` respaldado por un `ForegroundService` de tipo `health` y `OngoingActivity`.
-* **Credenciales:** Configuración privada en `local.properties` inyectada en `BuildConfig` en el módulo móvil. Cero teclado en el reloj.
+Estado: ✅ hecho · ⚠️ parcial / se desvía · ❌ pendiente
 
 ---
 
-## 2. ARQUITECTURA GENERAL Y FLUJO DE DATOS
+## 1. Objetivo
 
-```
-[ Servidor wger (Docker en LAN / Tailscale) ]
-                    ▲
-         HTTP REST v2 (JSON con Token)
-                    │
-            [ Android Mobile ]  <-- Posee VPN/Tailscale y credenciales
-                    ▲
-       Google Play Services: DataClient (PutDataMapRequest + .setUrgent())
-                    │
-            [ Pixel Watch 3 ]   <-- 100% autónomo durante el entrenamiento
-              ├── UI: Wear Compose Material 3 (1.5.0)
-              ├── Persistencia: Room Database local
-              ├── Biometría: ExerciseClient (Health Services)
-              └── Background: ForegroundService (type="health") + OngoingActivity
+Registrar entrenamientos de gimnasio desde el **Pixel Watch 3** sin depender del móvil ni de la red durante la sesión, y volcarlos después a una instancia **autoalojada de wger** que solo es accesible desde el móvil (LAN o Tailscale).
 
-```
+## 2. Contexto y restricciones
 
-> **Regla crítica de sincronización:** Ambos módulos (`:wear` y `:mobile`) deben compartir exactamente el mismo `applicationId` (ej. `com.wger.companion`) y estar firmados con la misma clave criptográfica (keystore de debug idéntico); de lo contrario, `DataClient` descarta los paquetes silenciosamente.
+| Aspecto | Decisión |
+|---|---|
+| Reloj | Pixel Watch 3, Wear OS 5 (Android 14, API 34). `:wear` minSdk 30 |
+| Móvil | Android, minSdk 26. Único nodo con acceso al servidor |
+| Servidor | wger en Docker, API REST v2, autenticación `Authorization: Token …` |
+| Entorno de desarrollo | Linux (Arch/CachyOS), CLI de Android, ADB WiFi al reloj |
+| Transporte reloj ⇄ móvil | Wearable Data Layer (Google Play Services) |
+| Credenciales | `local.properties` → `BuildConfig` del móvil. Nada se teclea en el reloj |
 
----
+**Por qué un relay:** el reloj no tiene acceso a Tailscale ni a la LAN del servidor de forma fiable, y meter un token en el reloj obligaría a teclearlo o a sincronizarlo. El móvil ya tiene la VPN y las credenciales.
 
-## 3. CATÁLOGO DE DEPENDENCIAS Y VERSIONES (`gradle/libs.versions.toml`)
+**Por qué `DataClient` y no `MessageClient`:** `DataClient` persiste el `DataItem` y lo entrega cuando el otro nodo vuelve a estar disponible; `MessageClient` se pierde si el otro nodo no está conectado. Los datos del entrenamiento no se pueden perder.
 
-Configuración validada para evitar colisiones de memoria en Linux y garantizar soporte nativo para Wear OS 5:
+**Por qué `setUrgent()`:** sin él, Wear OS agrupa las escrituras del Data Layer para ahorrar batería y puede retrasar la entrega varios minutos (hasta ~30).
 
-```toml
-[versions]
-agp = "8.7.2"
-kotlin = "2.0.21"
-ksp = "2.0.21-1.0.28"
-wearCompose = "1.5.0"
-wearOngoing = "1.1.0"
-playServicesWearable = "18.2.0"
-healthServices = "1.1.0-alpha04"
-room = "2.6.1"
-coroutines = "1.9.0"
-ktor = "3.0.1"
+## 3. Requisitos funcionales
 
-[libraries]
-# Wear Compose Material 3 (Descartar compose-material 1.x)
-wear-compose-material3 = { group = "androidx.wear.compose", name = "compose-material3", version.ref = "wearCompose" }
-wear-compose-foundation = { group = "androidx.wear.compose", name = "compose-foundation", version.ref = "wearCompose" }
-wear-compose-navigation = { group = "androidx.wear.compose", name = "compose-navigation", version.ref = "wearCompose" }
-wear-ongoing = { group = "androidx.wear", name = "wear-ongoing", version.ref = "wearOngoing" }
+### Reloj (`:wear`)
 
-# Capa de datos y sensores
-play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "playServicesWearable" }
-health-services-client = { group = "androidx.health", name = "health-services-client", version.ref = "healthServices" }
+| ID | Requisito | Estado |
+|---|---|---|
+| W1 | Guardar la rutina activa en Room y funcionar sin conexión durante toda la sesión | ✅ |
+| W2 | Pedir la rutina al móvil desde el reloj | ✅ `/wger/request_routine` |
+| W3 | Recorrer las series en orden, con reps y peso objetivo, y ajustar reps/kg antes de registrar | ✅ |
+| W4 | Temporizador de descanso entre series con vibración al terminar (+30 s / saltar) | ✅ |
+| W5 | Medir el pulso de forma continua con la pantalla apagada: foreground service `health` + `OngoingActivity` | ⚠️ Usa `SensorManager` (`TYPE_HEART_RATE`), no `ExerciseClient` de Health Services |
+| W6 | Resumen al terminar: duración, series y pulso medio | ✅ |
+| W7 | Enviar la sesión terminada al móvil y marcarla `SYNCED` al recibir el ACK | ✅ |
+| W8 | Reintentar las sesiones que se quedaron en `PENDING` | ❌ |
 
-# Persistencia local Room
-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+### Móvil (`:mobile`)
 
-# Corrutinas
-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
+| ID | Requisito | Estado |
+|---|---|---|
+| M1 | Probar la conexión con el servidor wger | ✅ |
+| M2 | Obtener la rutina activa y su secuencia y enviarla al reloj | ⚠️ Envía el **primer día con ejercicios**, no el día de hoy |
+| M3 | Al recibir una sesión, crearla en wger y registrar cada serie | ✅ |
+| M4 | Mandar el ACK al reloj solo si la subida se ha completado | ⚠️ Lo manda aunque falle alguna serie |
+| M5 | No duplicar la sesión en wger si llega dos veces | ❌ |
 
-# Cliente HTTP Móvil (Ktor)
-ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
-ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
-ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
-ktor-serialization-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
+### Herramientas
 
-[plugins]
-android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+| ID | Requisito | Estado |
+|---|---|---|
+| T1 | Importar a wger una rutina escrita en JSON (`scripts/import_routine.py`) | ⚠️ Los ejercicios se resuelven con un mapa fijo; los desconocidos se importan como push-up (ID 1551) |
 
-```
+## 4. Flujos
 
----
+### 4.1 Cargar la rutina en el reloj
 
-## 4. ESQUEMA DE BASE DE DATOS LOCAL ROOM (`:wear`)
+1. El usuario pulsa **Obtener Rutinas de wger** y **Enviar Rutina al Reloj** en el móvil, o **Pedir rutina al móvil** en el reloj (`MessageClient` → `/wger/request_routine`).
+2. El móvil llama a `GET /api/v2/routine/` y elige la rutina con `is_active`, o la primera si ninguna lo tiene.
+3. El móvil llama a `GET /api/v2/routine/{id}/date-sequence-gym/` y lo aplana a una lista de series (una entrada por serie, con `executionOrder`).
+   - El nombre del ejercicio sale del `comment` del slot (el texto antes de `:`).
+   - Si faltan campos, se usan valores por defecto: 10 reps, 60 s de descanso, 0 kg y `slotEntryId` sintético.
+4. El móvil envía `/wger/routine_update` y el reloj sustituye su rutina en Room en una transacción.
 
-Diseñado para soportar secuencias lineales de entrenamiento y sincronización en ráfaga:
+### 4.2 Entrenar y sincronizar
 
-```kotlin
-package com.wger.wear.data.local
+1. **Iniciar** crea una `LoggedWorkoutSession` en estado `PENDING`, arranca el foreground service y empieza a leer el pulso.
+2. Cada **Registrar serie** inserta un `LoggedSetEntry` y lleva al descanso.
+3. **Finalizar** calcula el pulso medio, guarda la sesión y envía `/wger/completed_session/{localId}`.
+4. El móvil hace `POST /api/v2/workoutsession/` con `date`, `notes` (duración y pulso medio) e `impression = 2`, y después un `POST /api/v2/workoutlog/` por serie con `session`, `slot_entry`, `reps` y `weight`.
+5. El móvil envía `/wger/session_synced/{localId}` y el reloj marca la sesión como `SYNCED`.
 
-import androidx.room.Entity
-import androidx.room.ForeignKey
-import androidx.room.Index
-import androidx.room.PrimaryKey
+## 5. Modelo de datos local (Room, `:wear`)
 
-@Entity(tableName = "routine_cache")
-data class RoutineCacheEntity(
-    @PrimaryKey val routineId: Long,
-    val name: String,
-    val description: String,
-    val isCurrentActive: Boolean
-)
+Definición en `wear/src/main/java/com/wger/wear/data/local/Entities.kt`.
 
-@Entity(
-    tableName = "routine_exercise_slot",
-    indices = [Index(value = ["routineId", "executionOrder"])]
-)
-data class RoutineExerciseSlotEntity(
-    @PrimaryKey val slotEntryId: Long,
-    val routineId: Long,
-    val exerciseName: String,
-    val setNumber: Int,
-    val totalSetsForExercise: Int,
-    val executionOrder: Int,
-    val targetReps: Int,
-    val defaultWeightKg: Float,
-    val restDurationSeconds: Int
-)
+- `routine_cache`: la rutina activa (`isCurrentActive`).
+- `routine_exercise_slot`: una fila por serie planificada, ordenada por `executionOrder`.
+- `logged_workout_session`: la sesión, con `syncStatus` (`PENDING` / `SYNCING` / `SYNCED`; `SYNCING` no se usa todavía).
+- `logged_set_entry`: las series hechas, con FK a la sesión y borrado en cascada.
 
-@Entity(tableName = "logged_workout_session")
-data class LoggedWorkoutSessionEntity(
-    @PrimaryKey(autoGenerate = true) val localSessionId: Long = 0,
-    val routineId: Long,
-    val startTimestampMs: Long,
-    val endTimestampMs: Long = 0,
-    val avgHeartRateBpm: Int = 0,
-    val syncStatus: String // PENDING, SYNCING, SYNCED
-)
+La BD está en la versión 1 con `fallbackToDestructiveMigration()`: **cualquier cambio de esquema borra las sesiones que no se hayan sincronizado**, así que hace falta una `Migration` antes de tocar las entidades.
 
-@Entity(
-    tableName = "logged_set_entry",
-    foreignKeys = [
-        ForeignKey(
-            entity = LoggedWorkoutSessionEntity::class,
-            parentColumns = ["localSessionId"],
-            childColumns = ["sessionId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
-    indices = [Index(value = ["sessionId"])]
-)
-data class LoggedSetEntryEntity(
-    @PrimaryKey(autoGenerate = true) val setId: Long = 0,
-    val sessionId: Long,
-    val slotEntryId: Long,
-    val exerciseName: String,
-    val completedReps: Int,
-    val weightUsedKg: Float,
-    val completedTimestampMs: Long
-)
+## 6. Deuda técnica conocida
 
-```
-
----
-
-## 5. REQUISITOS DEL MANIFIESTO Y SERVICIOS EN BACKGROUND (`:wear`)
-
-En Wear OS 5, leer sensores con la pantalla apagada requiere imperativamente el tipo `health`:
-
-```xml
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <uses-feature android:name="android.hardware.type.watch" />
-
-    <uses-permission android:name="android.permission.BODY_SENSORS" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-
-    <application
-        android:allowBackup="false"
-        android:icon="@mipmap/ic_launcher"
-        android:label="wger Tracker"
-        android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault">
-
-        <!-- Servicio de monitorización biométrica -->
-        <service
-            android:name=".service.WorkoutTrackingService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="health" />
-
-        <!-- Listener de Data Layer para recibir rutinas desde el móvil -->
-        <service
-            android:name=".datalayer.WearDataLayerListenerService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
-                <data
-                    android:host="*"
-                    android:pathPrefix="/wger"
-                    android:scheme="wear" />
-            </intent-filter>
-        </service>
-
-        <activity
-            android:name=".presentation.MainActivity"
-            android:exported="true"
-            android:taskAffinity=""
-            android:theme="@android:style/Theme.DeviceDefault">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>
-
-```
-
----
-
-## 6. LÓGICA DE SINCRONIZACIÓN ASÍNCRONA (`WearSyncManager.kt`)
-
-Uso obligatorio de `DataClient` con `setUrgent()` para evitar que el kernel de Wear OS 5 posponga la replicación hasta 30 minutos:
-
-```kotlin
-package com.wger.wear.datalayer
-
-import android.content.Context
-import com.google.android.gms.wearable.DataClient
-import com.google.android.gms.wearable.PutDataMapRequest
-import com.google.android.gms.wearable.Wearable
-import com.wger.wear.data.local.LoggedSetEntryEntity
-import com.wger.wear.data.local.LoggedWorkoutSessionEntity
-import kotlinx.coroutines.tasks.await
-import org.json.JSONArray
-import org.json.JSONObject
-
-class WearSyncManager(context: Context) {
-    private val dataClient: DataClient = Wearable.getDataClient(context)
-
-    suspend fun dispatchSessionToPhone(
-        session: LoggedWorkoutSessionEntity,
-        sets: List<LoggedSetEntryEntity>
-    ): Boolean {
-        return try {
-            val requestUri = "/wger/completed_session/${session.localSessionId}"
-            val putDataMapRequest = PutDataMapRequest.create(requestUri).apply {
-                val setsArray = JSONArray()
-                sets.forEach { set ->
-                    val setObj = JSONObject().apply {
-                        put("slotEntryId", set.slotEntryId)
-                        put("reps", set.completedReps)
-                        put("weightKg", set.weightUsedKg.toDouble())
-                        put("timestamp", set.completedTimestampMs)
-                    }
-                    setsArray.put(setObj)
-                }
-
-                dataMap.putLong("localSessionId", session.localSessionId)
-                dataMap.putLong("routineId", session.routineId)
-                dataMap.putLong("startTimestamp", session.startTimestampMs)
-                dataMap.putLong("endTimestamp", session.endTimestampMs)
-                dataMap.putInt("avgHeartRate", session.avgHeartRateBpm)
-                dataMap.putString("setsJson", setsArray.toString())
-                
-                // CRÍTICO: Obliga a Wear OS 5 a no encolar el paquete por ahorro de batería
-                setUrgent()
-            }
-
-            val putDataRequest = putDataMapRequest.asPutDataRequest()
-            dataClient.putDataItem(putDataRequest).await()
-            true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            false
-        }
-    }
-}
-
-```
-
----
-
-## 7. MAPEO DE LA API REST DE WGER (`:mobile`)
-
-El módulo del teléfono consume los endpoints de wger resolviendo la secuencia calculada:
-
-1. **Obtener rutina del día:**
-* `GET /api/v2/routine/{id}/date-sequence-gym/`
-* Devuelve la secuencia lineal aplanada (ejercicios, series pautadas, repeticiones y descanso).
-* El móvil empaqueta este JSON y lo envía al reloj vía `/wger/routine_update`.
-
-
-2. **Registrar sesión completada:**
-* Al recibir `/wger/completed_session/*`, el servicio móvil:
-* Crea la sesión: `POST /api/v2/workoutsession/` con `date`, `notes` (incluyendo pulso medio y duración) e `impression`.
-* Registra cada serie: `POST /api/v2/workoutlog/` con `session`, `slot_entry`, `reps` y `weight`.
-* Envía confirmación ACK de vuelta al reloj para marcar el estado en Room como `SYNCED`.
-
-
-
-
-
----
-
-## 8. INSTRUCCIONES DE DESPLIEGUE DIRECTO (LINUX CLI)
-
-Comandos para compilar e instalar directamente por terminal:
-
-```bash
-# 1. Emparejar el Pixel Watch 3 (solo la primera vez)
-adb pair 192.168.1.XX:PUERTO_PAIRING CODIGO_PIN
-
-# 2. Conectar al reloj vía WiFi
-adb connect 192.168.1.XX:PUERTO_ADB
-
-# 3. Compilar e instalar ambos módulos
-# Móvil conectado por USB:
-./gradlew :mobile:installDebug
-
-# Reloj conectado por WiFi:
-./gradlew :wear:installDebug
-
-```
+1. Reintentar las sesiones `PENDING` (al abrir la app o al recuperar la conexión con el móvil) usando `getPendingSessions()`.
+2. Mandar el ACK solo si todas las series se han subido; si no, dejar la sesión en `PENDING` para reintentarla.
+3. Idempotencia en el móvil: recordar `localSessionId → remoteSessionId` para no crear la sesión dos veces en wger.
+4. Elegir en M2 el día que toca hoy, no el primero con ejercicios.
+5. Decidir sobre W5: migrar a `ExerciseClient` o quitar la dependencia `health-services-client`, que no se usa.
+6. `import_routine.py`: buscar los ejercicios en la API de wger y fallar si no existen, en lugar de usar push-up por defecto.
+7. No hay tests: priorizar el parseo de `date-sequence-gym`, el mapeo del `DataMap` y los DAOs.
+8. No hay firma de release: ahora mismo solo funciona con la keystore de debug compartida.

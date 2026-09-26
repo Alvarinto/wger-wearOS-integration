@@ -6,120 +6,119 @@
 [![wger](https://img.shields.io/badge/wger-REST%20API%20v2-2ecc71)](https://wger.de)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-Cliente autónomo para **Google Pixel Watch 3 (Wear OS 5)** y relay móvil complementario para la plataforma de entrenamiento libre y autoalojada **[wger](https://wger.de)**.
+Entrena en el gimnasio con el **Pixel Watch 3** sin conexión y vuelca la sesión a tu servidor **[wger](https://wger.de)** autoalojado al terminar.
 
-Permite entrenar en el gimnasio de forma **100% offline** directamente desde el reloj con registro biométrico de pulso cardíaco en tiempo real, temporizadores hápticos de descanso y sincronización automática en ráfaga con tu servidor autoalojado al terminar la sesión.
+El reloj guarda la rutina y todo lo que registras (series, repeticiones, peso y pulso). Al acabar, el móvil, que es el que tiene acceso a tu servidor por LAN o Tailscale, sube la sesión a wger.
 
 ---
 
-## 🏗️ Arquitectura del Sistema
+## 🏗️ Arquitectura
 
 ```
-[ Servidor wger (Docker en LAN / Tailscale) ]
+[ Servidor wger (Docker, LAN / Tailscale) ]
                     ▲
-         HTTP REST v2 (Token Auth)
+         HTTP REST v2 (Token)
                     │
-            [ Android Mobile (:mobile) ]  <-- Posee VPN/Tailscale y credenciales
+        [ Móvil Android — :mobile ]   ← tiene la VPN y las credenciales
                     ▲
-       Google Play Services: DataClient (.setUrgent())
+     Wearable Data Layer (DataClient + setUrgent)
                     │
-            [ Pixel Watch 3 (:wear) ]     <-- 100% autónomo durante el entrenamiento
-              ├── UI: Wear Compose Material 3 (1.5.0)
-              ├── Persistencia: Room Database local
-              ├── Biometría: SensorManager / Health Services
-              └── Background: ForegroundService (type="health") + OngoingActivity
+        [ Pixel Watch 3 — :wear ]     ← funciona offline durante el entrenamiento
+          ├── UI: Wear Compose Material 3
+          ├── Datos: Room
+          ├── Pulso: sensor de ritmo cardíaco (SensorManager)
+          └── Segundo plano: foreground service "health" + OngoingActivity
 ```
 
-* **Reloj autónomo (`:wear`):** Guarda la rutina activa en una base de datos local **Room**. Durante el entrenamiento no requiere conexión a Internet ni al teléfono. Registra series, repeticiones, peso y pulso medio.
-* **Relay móvil (`:mobile`):** Actúa como pasarela segura entre el reloj y tu servidor wger (compatible con redes privadas **Tailscale** o VPNs). Escucha las sesiones finalizadas mediante `WearableListenerService` y las sube automáticamente a wger.
+- **Reloj (`:wear`):** guarda la rutina activa en Room. Durante el entrenamiento no necesita ni Internet ni el móvil.
+- **Móvil (`:mobile`):** hace de pasarela. Descarga la rutina de wger y se la manda al reloj; recibe las sesiones terminadas, las sube a wger y confirma al reloj.
 
----
+## ✨ Funciones
 
-## ✨ Características Principales
+- ⌚ **En el reloj:** series en orden con reps y peso objetivo ajustables, temporizador de descanso con vibración (+30 s o saltar), pulso continuo con la pantalla apagada, acceso directo al entrenamiento desde la esfera (`OngoingActivity`) y resumen final.
+- ⚡ **Sincronización:** `DataClient` con `setUrgent()`, para que Wear OS no retrase el envío por ahorro de batería.
+- 🔒 **Sin teclear nada en el reloj:** la URL y el token de wger viven en `local.properties` y se compilan dentro de la app del móvil.
+- 📋 **Importador de rutinas:** `scripts/import_routine.py` crea en wger una rutina escrita en JSON.
 
-* ⌚ **Diseñado para Pixel Watch 3 (Wear OS 5):**
-  * Interfaz moderna en **Wear Compose Material 3** optimizada para pantallas circulares.
-  * **Servicio Foreground de salud (`type="health"`):** Lectura continua de frecuencia cardíaca (BPM) sin que la pantalla se apague ni el sistema operativo cierre el proceso.
-  * **OngoingActivity:** Notificación persistente para volver al entrenamiento activo desde cualquier carátula o menú.
-  * **Temporizador de descanso interactivo:** Cuenta atrás automática entre series con retroalimentación háptica (vibración física) al concluir el descanso.
-* ⚡ **Replicación Inmediata con `DataClient`:**
-  * Uso prioritario de `.setUrgent()` para evitar que el kernel de Wear OS 5 aplace la sincronización para ahorrar batería.
-* 🔒 **Seguridad y Privacidad:**
-  * Cero teclados en el reloj: Toda la autenticación y tokens residen exclusivamente en `local.properties` del móvil y se inyectan en `BuildConfig` en tiempo de compilación.
-* 📋 **Importador de Rutinas JSON:**
-  * Incluye un script en Python (`scripts/import_routine.py`) para parsear e importar cualquier rutina estructurada en formato JSON directamente a tu servidor de wger.
+## 🚀 Puesta en marcha
 
----
+### 1. Requisitos
 
-## 🚀 Puesta en Marcha
+- Android SDK (API 35 para compilar) con `platform-tools` (`adb`).
+- JDK 17 o superior.
+- Servidor wger con la API REST v2 accesible desde el móvil y un token de API (en wger: *Ajustes → API key*).
 
-### 1. Requisitos Previos
-* **Android SDK** (API 34 o superior) con `platform-tools` (`adb`).
-* **Java 17 o 21** (`openjdk`).
-* Servidor wger con API REST v2 activa (LAN o Tailscale).
-
-### 2. Configurar Credenciales
-Copia la plantilla de configuración e ingresa tu URL y Token de wger:
+### 2. Credenciales
 
 ```bash
 cp local.properties.example local.properties
 ```
 
-Edita `local.properties`:
 ```properties
 sdk.dir=/home/usuario/Android/Sdk
-wger.server.url="https://tu-servidor-wger.com"
-wger.api.token="tu_token_de_api_wger"
+wger.server.url="https://tu-servidor-wger"
+wger.api.token="tu_token_de_api"
 ```
 
-### 3. Compilar e Instalar
+`local.properties` está en `.gitignore`: nunca lo subas.
 
-#### En el Teléfono (por USB):
+### 3. Compilar e instalar
+
+> ⚠️ **Compila los dos APK en la misma máquina.** El móvil y el reloj deben tener el mismo `applicationId` (`com.wger.companion`) y la misma firma. Si no, el Data Layer descarta los mensajes **sin dar ningún error**. En debug se usa `~/.android/debug.keystore`.
+
+**Móvil (USB):**
 ```bash
 ./gradlew :mobile:installDebug
 ```
 
-#### En el Pixel Watch 3 (vía WiFi):
-1. En el reloj: **Ajustes** > **Opciones para desarrolladores** > Activa **Depuración ADB** y **Depuración inalámbrica**.
-2. Empareja y conecta desde tu terminal:
+**Reloj (ADB WiFi):**
+1. En el reloj: *Ajustes → Opciones para desarrolladores →* activa **Depuración ADB** y **Depuración inalámbrica**.
+2. Empareja (solo la primera vez) y conecta:
    ```bash
-   adb pair 192.168.1.XX:PUERTO_PAIRING CODIGO_PIN
-   adb connect 192.168.1.XX:PUERTO_ADB
+   adb pair <IP_RELOJ>:<PUERTO_EMPAREJAMIENTO> <CÓDIGO>
+   adb connect <IP_RELOJ>:<PUERTO_ADB>
    ```
-3. Instala el APK en el reloj:
+3. Instala:
    ```bash
-   adb -s 192.168.1.XX:PUERTO_ADB install -r wear/build/outputs/apk/debug/wear-debug.apk
+   ANDROID_SERIAL=<IP_RELOJ>:<PUERTO_ADB> ./gradlew :wear:installDebug
    ```
 
----
+`installDebug` instala en **todos** los dispositivos conectados. Si tienes el móvil y el reloj conectados a la vez, pon `ANDROID_SERIAL` también al instalar en el móvil (el serial sale en `adb devices`).
 
-## 📥 Importar Rutinas a wger desde JSON
+## 🏋️ Uso
 
-Puedes definir tus días, ejercicios y descansos en un archivo JSON (ver ejemplo en [`rutina.json`](rutina.json)):
+1. **Importa la rutina a wger** (opcional; también puedes crearla desde la web de wger). Ejecútalo desde la raíz del repo, porque lee `local.properties`:
+   ```bash
+   python3 scripts/import_routine.py rutina.json
+   ```
+   Tienes el formato en [`rutina.json`](rutina.json). Los ejercicios se buscan por nombre en un mapa interno del script; **un nombre que no esté en ese mapa se importa como "push-up"**, así que revisa la rutina en wger después de importarla.
+2. **En el móvil:** *Probar conexión HTTP → Obtener Rutinas de wger → Enviar Rutina al Reloj*. También puedes pulsar *Pedir rutina al móvil* desde el reloj.
+3. **En el reloj:** *Iniciar entrenamiento*, registra cada serie y pulsa *Finalizar sesión*. La sesión se sube a wger en cuanto el móvil la recibe.
 
-```bash
-python3 scripts/import_routine.py rutina.json
-```
+## ⚠️ Limitaciones conocidas
 
-Una vez importada:
-1. Abre la app en el teléfono y pulsa **"Obtener Rutinas de wger"**.
-2. Pulsa **"Enviar Rutina al Reloj"**.
-3. ¡Tu Pixel Watch 3 se actualizará automáticamente con las series del día!
+- Se envía al reloj el **primer día de la rutina que tiene ejercicios**, no el que toca hoy.
+- Si la sesión no llega al móvil, se queda pendiente en el reloj y **no se reintenta sola** todavía.
+- Si falla la subida de una serie a wger, la sesión se marca igualmente como sincronizada. Mira `adb logcat -s MobileDataLayerListener`.
 
----
+Detalle y hoja de ruta en [`specs.md`](specs.md).
 
-## 🛠️ Tecnologías Utilizadas
+## 🩺 Solución de problemas
 
-* **Lenguaje:** Kotlin 2.0.21
-* **Build System:** Gradle 8.10.2 con Version Catalogs (`libs.versions.toml`)
-* **Wear OS:** Wear Compose Material 3 1.5.0, Wear Ongoing 1.1.0, Health Services Client
-* **Data Layer:** Google Play Services Wearable 18.2.0
-* **Persistencia:** Room Database 2.6.1 + KSP
-* **Networking Móvil:** Ktor Client 3.0.1 (OkHttp Engine + Kotlinx Serialization)
+| Síntoma | Causa probable |
+|---|---|
+| El reloj no recibe la rutina y el móvil no da error | APKs firmados con claves distintas, o `applicationId` distinto |
+| *Probar conexión HTTP* falla | La VPN o Tailscale están apagados en el móvil, o la URL o el token están mal en `local.properties` (tras corregirlos, recompila) |
+| El pulso se queda en 0 | No se concedió el permiso de sensores corporales en el reloj |
 
----
+## 🛠️ Tecnologías
+
+Kotlin 2.0.21 · Gradle 8.10.2 (version catalog en `gradle/libs.versions.toml`) · Wear Compose Material 3 1.5.0 · Wear Ongoing 1.1.0 · Play Services Wearable 18.2.0 · Room 2.6.1 + KSP · Ktor 3.0.1 (OkHttp + kotlinx.serialization) · Jetpack Compose Material 3 (móvil).
+
+## 🤖 Desarrollo con agentes de IA
+
+Las instrucciones para Claude Code, Codex y similares están en [`AGENTS.md`](AGENTS.md).
 
 ## 📄 Licencia
 
-Este proyecto está distribuido bajo la licencia [Apache 2.0](LICENSE).
-Inspirado por el ecosistema de fitness libre de [wger Workout Manager](https://github.com/wger-project/wger).
+[Apache 2.0](LICENSE). Inspirado en el ecosistema de fitness libre de [wger Workout Manager](https://github.com/wger-project/wger).
