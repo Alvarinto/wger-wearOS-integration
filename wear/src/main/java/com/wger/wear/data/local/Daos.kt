@@ -57,7 +57,15 @@ interface WorkoutSessionDao {
     @Query("SELECT * FROM logged_workout_session WHERE localSessionId = :sessionId")
     suspend fun getSessionById(sessionId: Long): LoggedWorkoutSessionEntity?
 
-    @Query("SELECT * FROM logged_workout_session WHERE syncStatus = 'PENDING' ORDER BY startTimestampMs ASC")
+    // Entreno en curso: sesión sin terminar (endTimestampMs = 0)
+    @Query("SELECT * FROM logged_workout_session WHERE endTimestampMs = 0 ORDER BY startTimestampMs DESC LIMIT 1")
+    suspend fun getActiveSession(): LoggedWorkoutSessionEntity?
+
+    @Query("SELECT * FROM logged_workout_session WHERE endTimestampMs = 0 ORDER BY startTimestampMs DESC LIMIT 1")
+    fun getActiveSessionFlow(): Flow<LoggedWorkoutSessionEntity?>
+
+    // Solo terminadas: la sesión en curso también está PENDING
+    @Query("SELECT * FROM logged_workout_session WHERE syncStatus = 'PENDING' AND endTimestampMs > 0 ORDER BY startTimestampMs ASC")
     suspend fun getPendingSessions(): List<LoggedWorkoutSessionEntity>
 
     @Query("SELECT * FROM logged_workout_session ORDER BY startTimestampMs DESC")
