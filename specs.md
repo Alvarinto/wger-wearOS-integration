@@ -90,6 +90,8 @@ La BD está en la versión 2 (v1→v2: nueva clave de las series planificadas y 
 
 ## 6. Deuda técnica conocida
 
+Las funciones nuevas y el orden en que se abordan están en la **Hoja de ruta** del `README.md`. Aquí solo va la deuda del código actual.
+
 1. Sincronización fiable, en issues de GitHub y por este orden (#1 idempotencia y #2 ACK solo si todo se sube ya hechos): falta #3 reintento de `PENDING`.
 2. Elegir en M2 el día que toca hoy, no el primero con ejercicios.
 3. Decidir sobre W5: migrar a `ExerciseClient` o quitar la dependencia `health-services-client`, que no se usa.
