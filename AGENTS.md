@@ -33,7 +33,7 @@ Si cambias un lado, cambia el otro en el mismo commit. Las claves van dentro de 
 | Ruta | Sentido | API | Claves |
 |---|---|---|---|
 | `/wger/routine_update` | móvil → reloj | `DataClient` | `routineId`, `routineName`, `routineDescription`, `slotsJson`, `timestamp` |
-| `/wger/completed_session/{localId}` | reloj → móvil | `DataClient` | `localSessionId`, `routineId`, `startTimestamp`, `endTimestamp`, `avgHeartRate`, `setsJson` |
+| `/wger/completed_session/{localId}` | reloj → móvil | `DataClient` | `localSessionId`, `routineId`, `startTimestamp`, `endTimestamp`, `avgHeartRate`, `setsJson`, `dispatchedAt` (cambia en cada envío para que el reintento dispare `onDataChanged`) |
 | `/wger/session_synced/{localId}` | móvil → reloj | `DataClient` | `sessionId`, `syncedAt` |
 | `/wger/request_routine` | reloj → móvil | `MessageClient` | (sin payload) |
 

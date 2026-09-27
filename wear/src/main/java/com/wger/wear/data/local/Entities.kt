@@ -40,7 +40,7 @@ data class LoggedWorkoutSessionEntity(
     val startTimestampMs: Long,
     val endTimestampMs: Long = 0,
     val avgHeartRateBpm: Int = 0,
-    val syncStatus: String // PENDING, SYNCING, SYNCED
+    val syncStatus: String // PENDING, SYNCED
 )
 
 @Entity(

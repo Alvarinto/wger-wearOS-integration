@@ -19,10 +19,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.wear.ongoing.OngoingActivity
 import androidx.wear.ongoing.Status
-import com.wger.wear.data.WorkoutRepository
 import com.wger.wear.data.local.AppDatabase
 import com.wger.wear.data.local.LoggedWorkoutSessionEntity
-import com.wger.wear.datalayer.WearSyncManager
+import com.wger.wear.datalayer.workoutRepository
 import com.wger.wear.presentation.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,10 +43,7 @@ class WorkoutTrackingService : Service(), SensorEventListener {
     private var sensorManager: SensorManager? = null
     private var heartRateSensor: Sensor? = null
 
-    private val repository by lazy {
-        val syncManager = WearSyncManager(applicationContext)
-        WorkoutRepository(AppDatabase.getInstance(applicationContext), { s, sets -> syncManager.dispatchSessionToPhone(s, sets) })
-    }
+    private val repository by lazy { workoutRepository(applicationContext) }
 
     private val _currentHeartRate = MutableStateFlow(0)
     val currentHeartRate: StateFlow<Int> = _currentHeartRate.asStateFlow()

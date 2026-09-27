@@ -27,13 +27,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.TimeText
 import com.wger.wear.data.ActiveWorkout
-import com.wger.wear.data.WorkoutRepository
 import com.wger.wear.data.local.AppDatabase
 import com.wger.wear.data.local.LoggedWorkoutSessionEntity
 import com.wger.wear.datalayer.WearSyncManager
+import com.wger.wear.datalayer.workoutRepository
 import com.wger.wear.presentation.theme.WgerWearTheme
 import com.wger.wear.service.WorkoutTrackingService
 import kotlinx.coroutines.launch
@@ -72,6 +73,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Reenvía las sesiones terminadas sin ACK (#3). Aquí y no en la interfaz, para que ningún cambio de pantalla lo pierda
+        lifecycleScope.launch { workoutRepository(applicationContext).resendPending() }
 
         setContent {
             WgerWearTheme {
@@ -96,7 +99,7 @@ fun WearAppRoot(
     val coroutineScope = rememberCoroutineScope()
     val db = remember { AppDatabase.getInstance(context) }
     val syncManager = remember { WearSyncManager(context) }
-    val repository = remember { WorkoutRepository(db, { s, sets -> syncManager.dispatchSessionToPhone(s, sets) }) }
+    val repository = remember { workoutRepository(context) }
 
     val activeRoutine by db.routineDao().getActiveRoutine().collectAsState(initial = null)
     val slots by if (activeRoutine != null) {
