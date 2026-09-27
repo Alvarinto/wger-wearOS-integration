@@ -12,13 +12,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import org.json.JSONArray
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class MobileDataLayerListenerService : WearableListenerService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val apiClient by lazy { WgerApiClient() }
     private val phoneSyncManager by lazy { PhoneSyncManager(applicationContext) }
+    private val sessionUploader by lazy {
+        val prefs = applicationContext.getSharedPreferences("wger_sync", MODE_PRIVATE)
+        SessionUploader(apiClient, { prefs.getString(it, null) }, { k, v -> prefs.edit().putString(k, v).commit() })
+    }
 
     override fun onDataChanged(dataEvents: DataEventBuffer) {
         for (event in dataEvents) {
@@ -66,42 +71,9 @@ class MobileDataLayerListenerService : WearableListenerService() {
     ) {
         try {
             Log.d(TAG, "Procesando sesión completada $localSessionId recibida del reloj...")
-
-            val durationMinutes = ((endTimestamp - startTimestamp) / 60000).coerceAtLeast(1)
-            val notes = "Sesión completada desde Pixel Watch 3. Duración: $durationMinutes min. Pulso medio: $avgHeartRate bpm."
-
-            // 1. Crear sesión en wger
-            val sessionResult = apiClient.createWorkoutSession(
-                startMs = startTimestamp,
-                endMs = endTimestamp,
-                notes = notes,
-                impression = 2
-            )
-
-            val remoteSessionId = sessionResult.getOrThrow()
-            Log.d(TAG, "Sesión creada en wger con ID remoto: $remoteSessionId")
-
-            // 2. Registrar cada serie en wger
-            val setsArray = JSONArray(setsJson)
-            for (i in 0 until setsArray.length()) {
-                val setObj = setsArray.getJSONObject(i)
-                val slotEntryId = setObj.optLong("slotEntryId", 0L)
-                val exerciseId = setObj.optLong("exerciseId", 0L)
-                val reps = setObj.getInt("reps")
-                val weightKg = setObj.getDouble("weightKg")
-
-                val logResult = apiClient.logWorkoutSet(
-                    sessionId = remoteSessionId,
-                    exerciseId = exerciseId,
-                    slotEntryId = if (slotEntryId > 0) slotEntryId else null,
-                    reps = reps,
-                    weight = weightKg
-                )
-                if (logResult.isSuccess) {
-                    Log.d(TAG, "Serie #${i + 1} registrada en wger con éxito")
-                } else {
-                    Log.w(TAG, "Fallo al registrar serie #${i + 1}: ${logResult.exceptionOrNull()?.message}")
-                }
+            // Serializado: dos entregas simultáneas de la misma sesión verían ambas "no subida"
+            uploadMutex.withLock {
+                sessionUploader.upload(localSessionId, startTimestamp, endTimestamp, avgHeartRate, setsJson)
             }
 
             // 3. Enviar confirmación ACK al reloj
@@ -136,5 +108,6 @@ class MobileDataLayerListenerService : WearableListenerService() {
 
     companion object {
         private const val TAG = "MobileDataLayerListener"
+        private val uploadMutex = Mutex()
     }
 }
