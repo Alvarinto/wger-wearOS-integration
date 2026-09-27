@@ -22,7 +22,7 @@ wger (REST v2, Token) ⇄ :mobile (Ktor)  ⇄  Data Layer (DataClient)  ⇄  :we
 | `:mobile` | `mobile/src/main/java/com/wger/companion/mobile/` | |
 | | `network/WgerApiClient.kt` | Ktor + OkHttp contra `/api/v2/` |
 | | `data/model/WgerModels.kt` | DTOs serializables |
-| | `datalayer/` | `PhoneSyncManager` (envía rutina y ACK) · `MobileDataLayerListenerService` (sube sesiones a wger) |
+| | `datalayer/` | `PhoneSyncManager` (envía rutina y ACK) · `MobileDataLayerListenerService` (recibe sesiones) · `SessionUploader` (las sube a wger sin duplicar) |
 | | `presentation/MainActivity.kt` | Panel de control Compose |
 | — | `scripts/import_routine.py` | Importa `rutina.json` a wger (solo stdlib) |
 
@@ -86,8 +86,8 @@ Los tests de `wear/src/sharedTest/` corren en JVM y en el reloj; usan un nombre 
 ## Estado real (no te fíes de la spec en esto)
 
 - **Pulso:** `SensorManager` + `Sensor.TYPE_HEART_RATE`. La dependencia `health-services-client` está declarada pero **no se usa** (la spec pedía `ExerciseClient`).
+- **Idempotencia (#1, hecho):** `SessionUploader` guarda en `SharedPreferences` (`wger_sync`) `s:<localSessionId>:<startTimestamp>` → UUID de la sesión en wger y `l:<clave>:<timestamp de la serie>` por cada serie subida. Reprocesar reutiliza la sesión y sube solo lo que falta. La clave incluye `startTimestamp` porque Room reinicia `localSessionId` si se reinstala el reloj.
 - **Sincronización incompleta**, en issues de GitHub (van en este orden y dependen entre sí; el detalle está en cada issue, `gh issue view N`):
-  1. #1 **Duplicados:** reprocesar un `completed_session` crea otra sesión en wger.
   2. #2 **ACK optimista:** se manda aunque falle el `POST` de alguna serie.
   3. #3 **Sin reintentos:** una sesión `PENDING` no se reenvía nunca (`getPendingSessions()` no se usa; `SYNCING` nunca se asigna).
 - **`import_routine.py`:** los ejercicios que no están en su `exercise_map` se importan como el ID `1551` (push-up) sin avisar.
