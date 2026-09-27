@@ -10,11 +10,15 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
-/** Sube a wger una sesión recibida del reloj. `get`/`put`: almacén persistente (SharedPreferences). */
+/**
+ * Sube a wger una sesión recibida del reloj. `get`/`put`: almacén persistente (SharedPreferences).
+ * `ack`: confirma la sesión al reloj.
+ */
 class SessionUploader(
     private val apiClient: WgerApiClient,
     private val get: (String) -> String?,
-    private val put: (String, String) -> Unit
+    private val put: (String, String) -> Unit,
+    private val ack: suspend (Long) -> Unit
 ) {
 
     /** @return true si la sesión y todas sus series están en wger. */
@@ -66,6 +70,8 @@ class SessionUploader(
                 Log.w(TAG, "Fallo al registrar serie #${i + 1}: ${logResult.exceptionOrNull()?.message}")
             }
         }
+        // Sin ACK la sesión sigue PENDING en el reloj y podrá reintentarse (#3)
+        if (allUploaded) ack(localSessionId) else Log.w(TAG, "Sesión $localSessionId incompleta en wger: sin ACK")
         return allUploaded
     }
 

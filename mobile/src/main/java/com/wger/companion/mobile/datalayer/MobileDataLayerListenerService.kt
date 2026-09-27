@@ -22,7 +22,9 @@ class MobileDataLayerListenerService : WearableListenerService() {
     private val phoneSyncManager by lazy { PhoneSyncManager(applicationContext) }
     private val sessionUploader by lazy {
         val prefs = applicationContext.getSharedPreferences("wger_sync", MODE_PRIVATE)
-        SessionUploader(apiClient, { prefs.getString(it, null) }, { k, v -> prefs.edit().putString(k, v).commit() })
+        SessionUploader(apiClient, { prefs.getString(it, null) }, { k, v -> prefs.edit().putString(k, v).commit() }) {
+            phoneSyncManager.sendSessionAckToWatch(it)
+        }
     }
 
     override fun onDataChanged(dataEvents: DataEventBuffer) {
@@ -75,11 +77,6 @@ class MobileDataLayerListenerService : WearableListenerService() {
             uploadMutex.withLock {
                 sessionUploader.upload(localSessionId, startTimestamp, endTimestamp, avgHeartRate, setsJson)
             }
-
-            // 3. Enviar confirmación ACK al reloj
-            phoneSyncManager.sendSessionAckToWatch(localSessionId)
-            Log.d(TAG, "Sincronización completa para sesión local $localSessionId")
-
         } catch (e: Exception) {
             Log.e(TAG, "Error procesando sesión completada en servidor wger", e)
         }

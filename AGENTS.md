@@ -87,7 +87,7 @@ Los tests de `wear/src/sharedTest/` corren en JVM y en el reloj; usan un nombre 
 
 - **Pulso:** `SensorManager` + `Sensor.TYPE_HEART_RATE`. La dependencia `health-services-client` está declarada pero **no se usa** (la spec pedía `ExerciseClient`).
 - **Idempotencia (#1, hecho):** `SessionUploader` guarda en `SharedPreferences` (`wger_sync`) `s:<localSessionId>:<startTimestamp>` → UUID de la sesión en wger y `l:<clave>:<timestamp de la serie>` por cada serie subida. Reprocesar reutiliza la sesión y sube solo lo que falta. La clave incluye `startTimestamp` porque Room reinicia `localSessionId` si se reinstala el reloj.
-- **Sincronización incompleta**, en issues de GitHub (van en este orden y dependen entre sí; el detalle está en cada issue, `gh issue view N`):
-  2. #2 **ACK optimista:** se manda aunque falle el `POST` de alguna serie.
-  3. #3 **Sin reintentos:** una sesión `PENDING` no se reenvía nunca (`getPendingSessions()` no se usa; `SYNCING` nunca se asigna).
+- **ACK (#2, hecho):** `SessionUploader` llama a `ack` solo si la sesión y todas sus series están en wger; si falla alguna, la sesión sigue `PENDING` en el reloj.
+- **Sincronización incompleta**, en issues de GitHub (depende de #1 y #2; el detalle en `gh issue view 3`):
+  - #3 **Sin reintentos:** una sesión `PENDING` no se reenvía nunca (`getPendingSessions()` no se usa; `SYNCING` nunca se asigna).
 - **`import_routine.py`:** los ejercicios que no están en su `exercise_map` se importan como el ID `1551` (push-up) sin avisar.

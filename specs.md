@@ -49,7 +49,7 @@ Registrar entrenamientos de gimnasio desde el **Pixel Watch 3** sin depender del
 | M1 | Probar la conexión con el servidor wger | ✅ |
 | M2 | Obtener la rutina activa y su secuencia y enviarla al reloj | ⚠️ Envía el **primer día con ejercicios**, no el día de hoy |
 | M3 | Al recibir una sesión, crearla en wger y registrar cada serie | ✅ |
-| M4 | Mandar el ACK al reloj solo si la subida se ha completado | ⚠️ Lo manda aunque falle alguna serie (#2) |
+| M4 | Mandar el ACK al reloj solo si la subida se ha completado | ✅ #2 |
 | M5 | No duplicar la sesión en wger si llega dos veces | ✅ #1 |
 
 ### Herramientas
@@ -90,7 +90,7 @@ La BD está en la versión 2 (v1→v2: nueva clave de las series planificadas y 
 
 ## 6. Deuda técnica conocida
 
-1. Sincronización fiable, en issues de GitHub y por este orden (#1 idempotencia ya hecho): #2 ACK solo si todo se sube y #3 reintento de `PENDING`.
+1. Sincronización fiable, en issues de GitHub y por este orden (#1 idempotencia y #2 ACK solo si todo se sube ya hechos): falta #3 reintento de `PENDING`.
 2. Elegir en M2 el día que toca hoy, no el primero con ejercicios.
 3. Decidir sobre W5: migrar a `ExerciseClient` o quitar la dependencia `health-services-client`, que no se usa.
 4. `import_routine.py`: buscar los ejercicios en la API de wger y fallar si no existen, en lugar de usar push-up por defecto.

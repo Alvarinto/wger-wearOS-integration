@@ -12,13 +12,14 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Issue #1: reprocesar un completed_session no debe duplicar nada en wger. */
+/** Issue #1: reprocesar un completed_session no debe duplicar nada en wger. Issue #2: ACK solo si todo subió. */
 class SessionUploaderTest {
 
     private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
     private val store = HashMap<String, String>()
     private val sessionPosts = mutableListOf<String>()
     private val logPosts = mutableListOf<String>()
+    private val acks = mutableListOf<Long>()
     /** Nº de POST /workoutlog/ (1-based) que responderá 500. */
     private var failLogPost = -1
 
@@ -39,7 +40,8 @@ class SessionUploaderTest {
             }
         ),
         get = { store[it] },
-        put = { k, v -> store[k] = v }
+        put = { k, v -> store[k] = v },
+        ack = { acks += it }
     )
 
     private val setsJson = (1..3).joinToString(",", "[", "]") {
@@ -66,6 +68,22 @@ class SessionUploaderTest {
 
         assertEquals("POST /workoutsession/", 1, sessionPosts.size)
         assertEquals("3 intentos + 1 reintento de la serie fallida", 4, logPosts.size)
+        assertEquals("ACK solo tras reprocesar", listOf(1L), acks)
+    }
+
+    @Test
+    fun failedSet_sendsNoAck() = runBlocking {
+        failLogPost = 2
+        upload()
+
+        assertTrue("sin ACK: la sesión debe seguir PENDING en el reloj", acks.isEmpty())
+    }
+
+    @Test
+    fun allSetsUploaded_sendsAck() = runBlocking {
+        upload()
+
+        assertEquals(listOf(1L), acks)
     }
 
     @Test
