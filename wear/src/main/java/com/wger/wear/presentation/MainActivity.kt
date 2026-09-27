@@ -18,29 +18,25 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.TimeText
+import com.wger.wear.data.ActiveWorkout
+import com.wger.wear.data.WorkoutRepository
 import com.wger.wear.data.local.AppDatabase
-import com.wger.wear.data.local.LoggedSetEntryEntity
 import com.wger.wear.data.local.LoggedWorkoutSessionEntity
 import com.wger.wear.datalayer.WearSyncManager
 import com.wger.wear.presentation.theme.WgerWearTheme
 import com.wger.wear.service.WorkoutTrackingService
 import kotlinx.coroutines.launch
-
-enum class ScreenState {
-    ROUTINE_PREVIEW,
-    ACTIVE_WORKOUT,
-    REST_TIMER,
-    SUMMARY
-}
 
 class MainActivity : ComponentActivity() {
 
@@ -100,6 +96,7 @@ fun WearAppRoot(
     val coroutineScope = rememberCoroutineScope()
     val db = remember { AppDatabase.getInstance(context) }
     val syncManager = remember { WearSyncManager(context) }
+    val repository = remember { WorkoutRepository(db, { s, sets -> syncManager.dispatchSessionToPhone(s, sets) }) }
 
     val activeRoutine by db.routineDao().getActiveRoutine().collectAsState(initial = null)
     val slots by if (activeRoutine != null) {
@@ -108,11 +105,20 @@ fun WearAppRoot(
         remember { mutableStateOf(emptyList()) }
     }
 
-    var screenState by remember { mutableStateOf(ScreenState.ROUTINE_PREVIEW) }
-    var currentSlotIndex by remember { mutableIntStateOf(0) }
-    var restDurationSeconds by remember { mutableIntStateOf(60) }
+    // Entreno en curso según Room: al reabrir la app (o si Android recrea la pantalla) se vuelve a él
+    var loaded by remember { mutableStateOf(false) }
+    var active by remember { mutableStateOf<ActiveWorkout?>(null) }
+    LaunchedEffect(Unit) {
+        repository.activeWorkout.collect {
+            active = it
+            loaded = true
+        }
+    }
+
     var finishedSession by remember { mutableStateOf<LoggedWorkoutSessionEntity?>(null) }
-    var completedSetsCount by remember { mutableIntStateOf(0) }
+    var finishedSets by remember { mutableIntStateOf(0) }
+    // ponytail: saltar el descanso vive en memoria; si se cierra la app durante el descanso, vuelve con el tiempo que quede
+    var restSkippedForSet by rememberSaveable { mutableStateOf<Long?>(null) }
 
     var heartRate by remember { mutableIntStateOf(0) }
     var elapsedSeconds by remember { mutableStateOf(0L) }
@@ -136,133 +142,98 @@ fun WearAppRoot(
         }
     }
 
+    // Con un entreno en curso, el servicio debe estar en marcha (si murió el proceso, recupera pulso y notificación)
+    val activeSessionId = active?.session?.localSessionId
+    LaunchedEffect(activeSessionId) {
+        if (activeSessionId != null) {
+            context.startService(Intent(context, WorkoutTrackingService::class.java))
+        }
+    }
+
+    fun startWorkout(routineId: Long) {
+        coroutineScope.launch { repository.start(routineId) }
+    }
+
     // Permisos biométricos
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (isGranted && activeRoutine != null) {
-            val service = getService()
-            service?.startTracking(activeRoutine!!.routineId) {
-                currentSlotIndex = 0
-                completedSetsCount = 0
-                screenState = ScreenState.ACTIVE_WORKOUT
-            }
-        }
+        activeRoutine?.let { if (isGranted) startWorkout(it.routineId) }
     }
 
-    fun startWorkout() {
+    fun requestStart() {
+        val routine = activeRoutine ?: return
         val hasSensorPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.BODY_SENSORS
         ) == PackageManager.PERMISSION_GRANTED
 
         if (hasSensorPermission) {
-            val service = getService()
-            activeRoutine?.let { routine ->
-                service?.startTracking(routine.routineId) {
-                    currentSlotIndex = 0
-                    completedSetsCount = 0
-                    screenState = ScreenState.ACTIVE_WORKOUT
-                }
-            }
+            startWorkout(routine.routineId)
         } else {
             permissionLauncher.launch(Manifest.permission.BODY_SENSORS)
         }
     }
 
     fun finishWorkout() {
-        val service = getService()
-        service?.finishTracking { session ->
-            finishedSession = session
-            screenState = ScreenState.SUMMARY
-        } ?: run {
-            screenState = ScreenState.ROUTINE_PREVIEW
-        }
+        finishedSets = active?.sets?.size ?: 0
+        val onFinished: (LoggedWorkoutSessionEntity?) -> Unit = { finishedSession = it }
+        // Sin servicio enlazado no hay media de pulso, pero el entreno se cierra igual
+        getService()?.finishTracking(onFinished)
+            ?: coroutineScope.launch { onFinished(repository.finish(avgHeartRateBpm = 0)) }
     }
 
-    when (screenState) {
-        ScreenState.ROUTINE_PREVIEW -> {
-            RoutineScreen(
-                routine = activeRoutine,
-                slots = slots,
-                onStartWorkout = { startWorkout() },
-                onRefreshRoutine = {
-                    coroutineScope.launch {
-                        syncManager.requestRoutineRefresh()
-                    }
-                }
-            )
-        }
+    if (!loaded) return // aún no se sabe si hay un entreno en curso
 
-        ScreenState.ACTIVE_WORKOUT -> {
-            if (slots.isNotEmpty() && currentSlotIndex < slots.size) {
-                val currentSlot = slots[currentSlotIndex]
-                WorkoutScreen(
-                    currentSlot = currentSlot,
-                    slotIndex = currentSlotIndex,
-                    totalSlots = slots.size,
+    val workout = active
+    val summary = finishedSession
+    when {
+        summary != null -> SummaryScreen(
+            // Se actualiza al llegar el ACK del móvil
+            session = remember(summary.localSessionId) { db.workoutSessionDao().getSessionFlow(summary.localSessionId) }
+                .collectAsState(initial = summary).value ?: summary,
+            totalSets = finishedSets,
+            onDone = { finishedSession = null }
+        )
+
+        workout == null -> RoutineScreen(
+            routine = activeRoutine,
+            slots = slots,
+            onStartWorkout = { requestStart() },
+            onRefreshRoutine = {
+                coroutineScope.launch {
+                    syncManager.requestRoutineRefresh()
+                }
+            }
+        )
+
+        else -> {
+            val lastSet = workout.sets.lastOrNull()
+            val restEndsAt = workout.restEndsAtMs
+            val slot = workout.currentSlot
+            when {
+                lastSet != null && restEndsAt != null && restSkippedForSet != lastSet.setId &&
+                    System.currentTimeMillis() < restEndsAt -> key(lastSet.setId) {
+                    RestTimerScreen(
+                        initialSeconds = ((restEndsAt - System.currentTimeMillis()) / 1000).toInt(),
+                        onRestFinished = { restSkippedForSet = lastSet.setId }
+                    )
+                }
+
+                // Sin series pendientes: se cierra solo, como al acabar la última serie
+                slot == null -> LaunchedEffect(workout.session.localSessionId) { finishWorkout() }
+
+                else -> WorkoutScreen(
+                    currentSlot = slot,
+                    slotIndex = workout.sets.size,
+                    totalSlots = workout.slots.size,
                     heartRateBpm = heartRate,
                     elapsedSeconds = elapsedSeconds,
                     onCompleteSet = { reps, weightKg ->
-                        coroutineScope.launch {
-                            val service = getService()
-                            val sessionId = service?.activeSessionId?.value ?: 1L
-                            val loggedSet = LoggedSetEntryEntity(
-                                sessionId = sessionId,
-                                slotEntryId = currentSlot.slotEntryId,
-                                exerciseId = currentSlot.exerciseId,
-                                exerciseName = currentSlot.exerciseName,
-                                completedReps = reps,
-                                weightUsedKg = weightKg,
-                                completedTimestampMs = System.currentTimeMillis()
-                            )
-                            db.workoutSessionDao().insertSet(loggedSet)
-                            completedSetsCount++
-
-                            if (currentSlot.restDurationSeconds > 0) {
-                                restDurationSeconds = currentSlot.restDurationSeconds
-                                screenState = ScreenState.REST_TIMER
-                            } else {
-                                if (currentSlotIndex + 1 < slots.size) {
-                                    currentSlotIndex++
-                                } else {
-                                    finishWorkout()
-                                }
-                            }
-                        }
+                        coroutineScope.launch { repository.logSet(reps, weightKg) }
                     },
                     onFinishWorkout = { finishWorkout() }
                 )
-            } else {
-                finishWorkout()
-            }
-        }
-
-        ScreenState.REST_TIMER -> {
-            RestTimerScreen(
-                initialSeconds = restDurationSeconds,
-                onRestFinished = {
-                    if (currentSlotIndex + 1 < slots.size) {
-                        currentSlotIndex++
-                        screenState = ScreenState.ACTIVE_WORKOUT
-                    } else {
-                        finishWorkout()
-                    }
-                }
-            )
-        }
-
-        ScreenState.SUMMARY -> {
-            finishedSession?.let { session ->
-                SummaryScreen(
-                    session = session,
-                    totalSets = completedSetsCount,
-                    onDone = {
-                        screenState = ScreenState.ROUTINE_PREVIEW
-                    }
-                )
-            } ?: run {
-                screenState = ScreenState.ROUTINE_PREVIEW
             }
         }
     }

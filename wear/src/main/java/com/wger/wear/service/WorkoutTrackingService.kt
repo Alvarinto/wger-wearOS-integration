@@ -19,6 +19,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.wear.ongoing.OngoingActivity
 import androidx.wear.ongoing.Status
+import com.wger.wear.data.WorkoutRepository
 import com.wger.wear.data.local.AppDatabase
 import com.wger.wear.data.local.LoggedWorkoutSessionEntity
 import com.wger.wear.datalayer.WearSyncManager
@@ -43,18 +44,20 @@ class WorkoutTrackingService : Service(), SensorEventListener {
     private var sensorManager: SensorManager? = null
     private var heartRateSensor: Sensor? = null
 
+    private val repository by lazy {
+        val syncManager = WearSyncManager(applicationContext)
+        WorkoutRepository(AppDatabase.getInstance(applicationContext), { s, sets -> syncManager.dispatchSessionToPhone(s, sets) })
+    }
+
     private val _currentHeartRate = MutableStateFlow(0)
     val currentHeartRate: StateFlow<Int> = _currentHeartRate.asStateFlow()
 
     private val _elapsedSeconds = MutableStateFlow(0L)
     val elapsedSeconds: StateFlow<Long> = _elapsedSeconds.asStateFlow()
 
-    private val _activeSessionId = MutableStateFlow<Long?>(null)
-    val activeSessionId: StateFlow<Long?> = _activeSessionId.asStateFlow()
-
+    // ponytail: la media del pulso vive en memoria; si el proceso muere se pierde (no las series). Guardarla en Room si molesta.
     private val heartRateReadings = mutableListOf<Int>()
     private var timerJob: Job? = null
-    private var startTimestampMs: Long = 0
 
     inner class LocalBinder : Binder() {
         fun getService(): WorkoutTrackingService = this@WorkoutTrackingService
@@ -69,91 +72,61 @@ class WorkoutTrackingService : Service(), SensorEventListener {
         heartRateSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_HEART_RATE)
     }
 
-    fun startTracking(routineId: Long, onSessionCreated: (Long) -> Unit) {
-        serviceScope.launch {
-            startTimestampMs = System.currentTimeMillis()
-            heartRateReadings.clear()
-
-            val db = AppDatabase.getInstance(applicationContext)
-            val session = LoggedWorkoutSessionEntity(
-                routineId = routineId,
-                startTimestampMs = startTimestampMs,
-                syncStatus = "PENDING"
-            )
-            val sessionId = db.workoutSessionDao().insertSession(session)
-            _activeSessionId.value = sessionId
-
-            // Registro de sensor de ritmo cardíaco
-            heartRateSensor?.let {
-                sensorManager?.registerListener(
-                    this@WorkoutTrackingService,
-                    it,
-                    SensorManager.SENSOR_DELAY_NORMAL
-                )
+    /**
+     * Arranca (o recupera) el seguimiento del entreno en curso que haya en Room; lo lanza la pantalla
+     * al ver un entreno en curso. Al estar "started", sobrevive a que la pantalla se desenlace.
+     */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // En el hilo principal: dos arranques seguidos no registran el sensor dos veces
+        serviceScope.launch(Dispatchers.Main) {
+            val session = AppDatabase.getInstance(applicationContext).workoutSessionDao().getActiveSession()
+            if (session == null) {
+                stopSelf()
+            } else if (timerJob?.isActive != true) {
+                beginTracking(session)
             }
+        }
+        return START_NOT_STICKY
+    }
 
-            // Notificación Foreground con OngoingActivity (Wear OS 5)
-            val notification = buildOngoingNotification("Entrenamiento en curso", sessionId)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
+    private fun beginTracking(session: LoggedWorkoutSessionEntity) {
+        // Notificación Foreground con OngoingActivity (Wear OS 5)
+        val notification = buildOngoingNotification("Entrenamiento en curso", session.localSessionId)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
 
-            // Temporizador de duración
-            timerJob?.cancel()
-            timerJob = serviceScope.launch {
-                while (isActive) {
-                    delay(1000)
-                    _elapsedSeconds.value = (System.currentTimeMillis() - startTimestampMs) / 1000
-                }
-            }
+        // Registro de sensor de ritmo cardíaco
+        heartRateSensor?.let {
+            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
 
-            launch(Dispatchers.Main) {
-                onSessionCreated(sessionId)
+        // Temporizador de duración, desde el inicio guardado en Room
+        timerJob = serviceScope.launch {
+            while (isActive) {
+                _elapsedSeconds.value = (System.currentTimeMillis() - session.startTimestampMs) / 1000
+                delay(1000)
             }
         }
     }
 
-    fun finishTracking(onComplete: (LoggedWorkoutSessionEntity) -> Unit) {
-        val sessionId = _activeSessionId.value ?: return
-
+    /** `onComplete` recibe null si no había entreno en curso. */
+    fun finishTracking(onComplete: (LoggedWorkoutSessionEntity?) -> Unit) {
         serviceScope.launch {
             timerJob?.cancel()
             sensorManager?.unregisterListener(this@WorkoutTrackingService)
 
-            val endTimestamp = System.currentTimeMillis()
-            val avgHr = if (heartRateReadings.isNotEmpty()) {
-                heartRateReadings.average().toInt()
-            } else {
-                0
+            val avgHr = if (heartRateReadings.isNotEmpty()) heartRateReadings.average().toInt() else 0
+            heartRateReadings.clear()
+            // Cierra la sesión en Room y la envía al móvil (DataClient con .setUrgent())
+            val finished = repository.finish(avgHr)
+
+            launch(Dispatchers.Main) {
+                onComplete(finished)
             }
 
-            val db = AppDatabase.getInstance(applicationContext)
-            val existing = db.workoutSessionDao().getSessionById(sessionId)
-            if (existing != null) {
-                val updated = existing.copy(
-                    endTimestampMs = endTimestamp,
-                    avgHeartRateBpm = avgHr
-                )
-                db.workoutSessionDao().updateSession(updated)
-
-                val sets = db.workoutSessionDao().getSetsForSession(sessionId)
-
-                // Replicación inmediata al móvil usando DataClient con .setUrgent()
-                val syncManager = WearSyncManager(applicationContext)
-                syncManager.dispatchSessionToPhone(updated, sets)
-
-                launch(Dispatchers.Main) {
-                    onComplete(updated)
-                }
-            }
-
-            _activeSessionId.value = null
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }

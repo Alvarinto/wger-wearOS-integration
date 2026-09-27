@@ -91,7 +91,7 @@ fun SummaryScreen(
             Spacer(modifier = Modifier.height(4.dp))
             val isSynced = session.syncStatus == "SYNCED"
             Text(
-                text = if (isSynced) "✅ Sincronizado con wger" else "⚡ Enviado al móvil vía Data Layer",
+                text = if (isSynced) "✅ Sincronizado con wger" else "⏳ Pendiente de sincronizar",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isSynced) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
                 textAlign = TextAlign.Center
