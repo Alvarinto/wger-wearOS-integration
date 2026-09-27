@@ -47,5 +47,5 @@ render.experimental.xml
 .DS_Store
 Thumbs.db
 
-# Claude Code (permisos personales)
-.claude/settings.local.json
+# Claude Code (configuración personal)
+.claude/
