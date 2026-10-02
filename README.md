@@ -115,6 +115,7 @@ Por fases y en este orden: cada una deja la app funcionando y prepara la siguien
 | **2. Entrenar desde el móvil** | El móvil deja de ser solo una pasarela: puedes entrenar en él sin conexión y la sesión se sube a wger al terminar. | Nuevo módulo `:core` con la BD y `WorkoutRepository`, compartido por las dos apps. En el móvil la sesión se sube con `SessionUploader`; en el reloj, con el Data Layer. |
 | **3. Interfaz** | Rediseño del reloj y del móvil. Pantalla de historial en los dos para ver qué entrenos están sincronizados con wger y cuáles pendientes. | Solo pantallas. Tras la fase 0 se puede hacer por partes, sin riesgo para los datos. |
 | **4. Carrera** | Por definir. | Primero, una investigación: qué acepta wger para una carrera (distancia y tiempo; hoy *Running* se registra como series de "repeticiones") y si usar `ExerciseClient` de Health Services para el GPS y el ritmo. Después se decide el alcance. |
+| **5. Música** | Una Tile en el reloj para controlar la música (anterior, play/pausa, siguiente y la canción actual) sin salir del entreno. | Por decidir entre dos vías. **Relay en el móvil:** `NotificationListenerService` + `MediaController` controlan el reproductor del móvil, y la Tile manda las órdenes por `MessageClient`; vale para cualquier app y no necesita internet. **API Web de Spotify:** controla cualquier dispositivo de Spotify Connect, pero exige Premium, OAuth e internet. |
 
 ## 🩺 Solución de problemas
 
